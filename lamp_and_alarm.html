@@ -166,7 +166,7 @@ section{scroll-margin-top:16px}
   </div>
 </header>
 <nav class="toc" aria-label="Contents">
-  <a href="#overview">Overview</a><a href="#how">How it works</a><a href="#schedule">Schedule</a><a href="#bom">Parts</a><a href="#base">Base</a><a href="#wiring">Wiring</a><a href="#sound">Sound</a><a href="#software">Software</a><a href="#plan">Milestones</a><a href="#battery">Battery</a><a href="#todo">Still to check</a><a href="#sources">Sources</a>
+  <a href="#overview">Overview</a><a href="#how">How it works</a><a href="#schedule">Schedule</a><a href="#bom">Parts</a><a href="#base">Base</a><a href="#wiring">Wiring</a><a href="#sound">Sound</a><a href="#software">Software</a><a href="#status">Build log</a><a href="#plan">Milestones</a><a href="#battery">Battery</a><a href="#todo">Still to check</a><a href="#sources">Sources</a>
 </nav>
 
 <section id="overview">
@@ -767,6 +767,41 @@ LowPower::new(p.LPWR).sleep_deep(RtcSleepConfig::deep());</pre></div>
   </div></details>
 </section>
 
+<section id="status">
+  <h2>Build log</h2>
+  <p class="muted">Where the build stands on 3 Nov 2026, from what has actually been run on the real board. The ESP32-C3 SuperMini, a DS3231 board and a display have arrived; no other part has been reported as arrived, and nothing else is wired. The scratch projects <code>blink-test/</code> and <code>wifi-ntp/</code> in the repository root are experiments, not the lamp firmware.</p>
+  <div class="tablewrap"><table style="min-width:680px">
+    <thead><tr><th>Step</th><th>Result</th><th>What it showed</th></tr></thead>
+    <tbody>
+<tr><td><b>USB and flashing</b></td><td><b>Passed</b> · 28 Oct</td><td><code>espflash board-info</code> reads an ESP32-C3 (revision v0.4) with 4 MB flash over the board’s own USB-C port, no extra chip. On Arch the user must be in the <code>uucp</code> group to open <code>/dev/ttyACM0</code>. Before the first flash the factory firmware reset the chip every 2–3 seconds (the USB device kept reconnecting); flashing our own program stopped it.</td></tr>
+<tr><td><b>Blink and PWM</b></td><td><b>Passed</b></td><td>The onboard LED is on GPIO8 and is active-low. LEDC PWM (24 kHz, 8-bit) fades it smoothly. The ring will use the RMT peripheral instead, so this was only a stand-in for watching the ramp.</td></tr>
+<tr><td><b><code>core</code> on the chip</b></td><td><b>Passed</b></td><td><code>lamp-core</code> is <code>no_std</code> and builds for the C3 as a path dependency. <code>ramp_duty</code> drove the LED through a 30-second test ramp.</td></tr>
+<tr><td><b>Wi-Fi, DHCP, DNS, NTP</b> (<code>wifi-ntp/</code>)</td><td><b>Passed</b></td><td>Joined the router (WPA2), got an IP address, resolved <code>pool.ntp.org</code> and read the NTP reply. Notes: <code>esp-radio</code> is 1.0.0-beta.1 with no stability guarantee; it does not support WPA3 or 5 GHz; the generator needs the <code>wifi</code>, <code>alloc</code>, <code>unstable-hal</code> and <code>embassy</code> options; and <code>embassy-net</code> needs the <code>dns</code> feature added by hand in the generated <code>Cargo.toml</code>.</td></tr>
+<tr><td><b>Cairo local time through <code>core</code></b></td><td><b>Passed</b></td><td>The UTC minutes from the NTP reply were fed into <code>utc_to_egypt</code> and the board printed the Cairo date and time at UTC+2, as expected after summer time ended at midnight on 29 Oct.</td></tr>
+<tr><td><b>DS3231 clock</b></td><td><b>Identified, not wired</b></td><td>From photos: a blue board marked <code>HW-084</code> with the DS3231 chip and a second 8-pin chip (probably the AT24C32 memory; the print is not readable). A 6-pin header is already soldered on (<code>32K SQW SCL SDA VCC GND</code>) and a CR2032 is already in the holder. It has not been powered yet.</td></tr>
+<tr><td><b>Display</b></td><td><b>Arrived, not identified</b></td><td>The notes expect the WeAct 2.13″ with an SSD1680, but the module has not been checked against its printed labels.</td></tr>
+    </tbody></table></div>
+  <div class="callout warn">
+    <strong>Before the DS3231 is powered</strong>
+    <p>A CR2032 cannot be recharged, and boards of this type have a small resistor-and-diode path that charges the cell. On this one it is most likely <code>R4</code> with <code>D2</code>, at the top left under the <code>SCL</code> hole, but the resistor’s value is not readable in the photo, so nothing has been removed. Until that is confirmed, take the coin cell out before powering the board. Power it from 3V3 only: the I²C pull-ups go to <code>VCC</code>, so 5 V would put 5 V on pins the ESP32-C3 cannot take.</p>
+  </div>
+  <h3>What this changed in the design</h3>
+  <ul>
+    <li><b>I²C pins are free in esp-hal.</b> GPIO6 and GPIO7 from the pin map stand. The Arduino default of GPIO8 and GPIO9 does not apply, and GPIO8 is also the onboard LED.</li>
+    <li><b>Wi-Fi is not part of the design yet.</b> The lamp sleeps with the radio off. NTP is a way to set the DS3231 to UTC while developing. Using Wi-Fi in the finished lamp would add to the battery budget in the calculator below.</li>
+    <li><b>Generating the project:</b> with <code>esp-generate</code> 2.0.0 the chip is chosen with <code>-o esp32c3</code>, not <code>--chip</code>.</li>
+  </ul>
+  <h3>Suggested next steps</h3>
+  <ol class="steps">
+    <li><span><b>Make the DS3231 safe.</b> Take the CR2032 out. Photograph the <code>R4</code> and <code>D2</code> area close up and confirm which part is the charging resistor before it is removed; milestone 1 part A needs the charge resistor and LED off anyway.</span></li>
+    <li><span><b>Decide how to connect it.</b> Check whether the SuperMini has header pins. The DS3231 has male pins, so it needs male pins on the SuperMini and female-to-female jumpers, or a breadboard. Wire <code>VCC</code> to 3V3, <code>GND</code>, <code>SDA</code> to GPIO6 and <code>SCL</code> to GPIO7, and leave <code>SQW</code> unconnected for now.</span></li>
+    <li><span><b>Talk to it from <code>wifi-ntp/</code>.</b> Scan the I²C bus (expect 0x68, and probably 0x57 for the memory), read the time with <code>parse_time_registers</code>, write the NTP time with <code>time_registers</code>, and read it back.</span></li>
+    <li><span><b>Test the battery.</b> Once the charging path is dealt with and the cell is refitted, unplug USB for 30 seconds, plug it back in and check that the time kept running.</span></li>
+    <li><span><b>Identify the display.</b> Photograph both sides and the printed text on its cable, confirm the SSD1680, then follow the milestone 3 gate (8-pad header, reset, busy and data/command pins, the <code>weact-studio-epd</code> crate).</span></li>
+    <li><span><b>Join the pieces.</b> Take the alarm time from <code>core</code>’s schedule, compare it with the DS3231, and start the ramp. Then move the working code out of the scratch projects into a lamp crate in <code>firmware_ws/</code> that depends on <code>lamp-core</code>.</span></li>
+  </ol>
+</section>
+
 <section id="plan">
   <h2>Milestones</h2>
   <p>Buy the next row only after the one before has passed its gate, with one exception: stages 2 (sound) and 3 (display) do not depend on each other (the sound runs from the switched battery rail over GPIO20/21, the display from the 3.3 V pin over SPI), so do them in either order. Costs are parts only; the tools and the test supply are in the parts list. Nothing is paid for a stage that has not been proven.</p>
@@ -807,7 +842,7 @@ LowPower::new(p.LPWR).sleep_deep(RtcSleepConfig::deep());</pre></div>
   <h2>Still to check</h2>
   <p class="muted">Tested so far, on a computer only: the schedule logic, Egypt daylight saving, the DS3231 register encoding, the ramp and the MP3 commands (18 unit tests), and Fajr times within a minute of the Aladhan calculator on 122 days of 2026 (not yet against a mosque timetable).</p>
   <ul>
-    <li><b>Firmware:</b> the logic (schedule, five prayers, menu, stored settings, button and battery decoding) is tested on the PC, but the esp-hal crate is not written, and nothing has been compiled for or run on the board. The ring, e-paper drawing, flash storage, button polling and minute-redraw code isn’t written yet.</li>
+    <li><b>Firmware:</b> the logic (schedule, five prayers, menu, stored settings, button and battery decoding) is tested on the PC, and parts of it now run on the board (the LED ramp from <code>core</code>, Wi-Fi, NTP and the UTC-to-Cairo conversion; see the build log), but the lamp’s own esp-hal crate is not written. The ring, e-paper drawing, flash storage, button polling and minute-redraw code isn’t written yet.</li>
     <li><b>Low battery voltage:</b> the ring is rated from 3.5 V and the MP3 board recommends 4.5–5 V, but the cell runs 3.2–4.2 V. Milestones 1 and 2 test this; the fallback is a 5 V boost board.</li>
     <li><b>Switched ground:</b> never built. Check that nothing leaks through the ring or player pins while their ground is off.</li>
     <li><b>Sleep current:</b> an estimate until measured in milestone 1. The calculator assumes 1 mA.</li>
