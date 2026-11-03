@@ -54,7 +54,12 @@ async fn main(spawner: Spawner) -> ! {
     );
     // The TTP223 drives OUT both ways, so this pin takes no pull-up. Its output
     // idles at 0 V and goes high while touched, so the wake is armed on a high.
-    let mut pad = Input::new(peripherals.GPIO4, InputConfig::default());
+    // The weak pull-down only matters if the jumper to the module comes loose:
+    // a floating line must not read as a finger.
+    let mut pad = Input::new(
+        peripherals.GPIO4,
+        InputConfig::default().with_pull(Pull::Down),
+    );
     // The following pins are used to bootstrap the chip. They are available
     // for use, but check the datasheet of the module for more information on them.
     // - GPIO2
@@ -178,7 +183,28 @@ async fn main(spawner: Spawner) -> ! {
         None => info!("NTP failed"),
     }
 
+    let mut announced = false;
+
     loop {
+        led.set_low();
+
+        // A pin already sitting at its wake level ends the sleep the moment it starts,
+        // and the board then looks like it never sleeps. Wait for the level to clear
+        // and name the pin that is holding it.
+        let clock_high = sqw.is_high();
+        let pad_high = pad.is_high();
+        if !clock_high || pad_high {
+            if !announced {
+                info!(
+                    "waiting: clock high = {}, pad high = {}",
+                    clock_high, pad_high
+                );
+                announced = true;
+            }
+            Timer::after(Duration::from_millis(100)).await;
+            continue;
+        }
+
         sqw.apply_wakeup_config(&WakeupConfig::default().with_low_power_path(true))
             .expect("arm GPIO3 as a wake source");
         sqw.listen(Event::LowLevel);
@@ -188,6 +214,7 @@ async fn main(spawner: Spawner) -> ! {
             .expect("arm GPIO4 as a wake source");
         pad.listen(Event::HighLevel);
 
+        info!("sleeping");
         led.set_high();
 
         let mut lp = LowPower::new(peripherals.LPWR);
