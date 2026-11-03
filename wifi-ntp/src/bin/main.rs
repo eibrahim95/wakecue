@@ -144,9 +144,8 @@ async fn main(spawner: Spawner) -> ! {
             print_utc(&unix_from_registrs);
 
             let now_min = ds3231::parse_time_registers(t).div_euclid(60);
-            // Bench: an hour out, so the clock cannot be what wakes the chip while
-            // the touch pad is being tested. Put this back to `+ 2` afterwards.
-            let target = now_min + 60;
+            // Two minutes out: keeps a full clock-wake cycle short enough to watch.
+            let target = now_min + 2;
 
             // 2. clear a flag the chip may have been carrying
             let mut st = [0u8; 1];
