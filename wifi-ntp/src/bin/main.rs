@@ -198,7 +198,7 @@ async fn main(spawner: Spawner) -> ! {
 
         if BENCH_STAY_AWAKE {
             info!("clock high = {}, pad high = {}", clock_high, pad_high);
-            Timer::after(Duration::from_secs(1)).await;
+            blink_state(&mut led, clock_high, pad_high).await;
             continue;
         }
 
@@ -234,6 +234,34 @@ async fn main(spawner: Spawner) -> ! {
     }
 
     // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.2.2/examples
+}
+
+/// Bench readout on the one LED, so the two wake levels can be read without a
+/// serial log. Count the blinks in each burst, then a one-second pause:
+///
+/// - **1 blink** — both levels clear, a real sleep would start here (good).
+/// - **2 blinks** — pad line high while untouched: jumper on the wrong row, or
+///   the module's OUT is stuck high.
+/// - **3 blinks** — clock line low: Alarm 1 is due, so the SQW pin pulls low.
+/// - **4 blinks** — both of the above.
+async fn blink_state(led: &mut Output<'static>, clock_high: bool, pad_high: bool) {
+    let blinks = if clock_high && !pad_high {
+        1
+    } else if clock_high {
+        2
+    } else if pad_high {
+        4
+    } else {
+        3
+    };
+
+    for _ in 0..blinks {
+        led.set_low(); // active low: on
+        Timer::after(Duration::from_millis(200)).await;
+        led.set_high(); // off
+        Timer::after(Duration::from_millis(200)).await;
+    }
+    Timer::after(Duration::from_millis(1000)).await;
 }
 
 #[embassy_executor::task]
