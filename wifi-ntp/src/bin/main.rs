@@ -52,6 +52,9 @@ async fn main(spawner: Spawner) -> ! {
         peripherals.GPIO3,
         InputConfig::default().with_pull(Pull::Up),
     );
+    // The TTP223 drives OUT both ways, so this pin takes no pull-up. Its output
+    // idles at 0 V and goes high while touched, so the wake is armed on a high.
+    let mut pad = Input::new(peripherals.GPIO4, InputConfig::default());
     // The following pins are used to bootstrap the chip. They are available
     // for use, but check the datasheet of the module for more information on them.
     // - GPIO2
@@ -135,7 +138,9 @@ async fn main(spawner: Spawner) -> ! {
             print_utc(&unix_from_registrs);
 
             let now_min = ds3231::parse_time_registers(t).div_euclid(60);
-            let target = now_min + 2;
+            // Bench: an hour out, so the clock cannot be what wakes the chip while
+            // the touch pad is being tested. Put this back to `+ 2` afterwards.
+            let target = now_min + 60;
 
             // 2. clear a flag the chip may have been carrying
             let mut st = [0u8; 1];
@@ -177,6 +182,12 @@ async fn main(spawner: Spawner) -> ! {
         sqw.apply_wakeup_config(&WakeupConfig::default().with_low_power_path(true))
             .expect("arm GPIO3 as a wake source");
         sqw.listen(Event::LowLevel);
+
+        // Same setup, opposite level: this module has no A/B pads, so a touch is a high.
+        pad.apply_wakeup_config(&WakeupConfig::default().with_low_power_path(true))
+            .expect("arm GPIO4 as a wake source");
+        pad.listen(Event::HighLevel);
+
         led.set_high();
 
         let mut lp = LowPower::new(peripherals.LPWR);
