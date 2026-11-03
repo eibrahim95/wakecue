@@ -23,7 +23,7 @@ extern crate alloc;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{IpAddress, Stack};
 use embassy_time::with_timeout;
-use esp_hal::gpio::{Event, Input, InputConfig, Pull, WakeupConfig};
+use esp_hal::gpio::{Event, Input, InputConfig, Level, Output, OutputConfig, Pull, WakeupConfig};
 use esp_hal::i2c::master::{Config as I2Config, I2c};
 use esp_hal::rtc_cntl::sleep::{LowPower, RtcSleepConfig};
 use lamp_core::calendar::{civil_from_days, utc_to_egypt};
@@ -45,6 +45,9 @@ async fn main(spawner: Spawner) -> ! {
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
+    // Onboard LED is active-low. On while this boot is awake; driven off just before sleep.
+    // GPIO8 is a strap pin and is not held through deep sleep, so do not try to keep it lit.
+    let mut led = Output::new(peripherals.GPIO8, Level::Low, OutputConfig::default());
     let mut sqw = Input::new(
         peripherals.GPIO3,
         InputConfig::default().with_pull(Pull::Up),
@@ -174,6 +177,7 @@ async fn main(spawner: Spawner) -> ! {
         sqw.apply_wakeup_config(&WakeupConfig::default().with_low_power_path(true))
             .expect("arm GPIO3 as a wake source");
         sqw.listen(Event::LowLevel);
+        led.set_high();
 
         let mut lp = LowPower::new(peripherals.LPWR);
         lp.sleep_deep(RtcSleepConfig::deep());
