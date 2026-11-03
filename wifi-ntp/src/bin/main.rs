@@ -32,6 +32,11 @@ use lamp_core::ds3231;
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 const NTP_UNIX_OFFSET: i64 = 2_208_988_800;
+
+/// Bench switch: keep the chip awake and print the two wake levels once a second,
+/// so the USB port stays up while the wiring is checked. Set this to `false` to
+/// test sleeping again.
+static BENCH_STAY_AWAKE: bool = true;
 esp_bootloader_esp_idf::esp_app_desc!();
 
 #[allow(
@@ -188,11 +193,18 @@ async fn main(spawner: Spawner) -> ! {
     loop {
         led.set_low();
 
+        let clock_high = sqw.is_high();
+        let pad_high = pad.is_high();
+
+        if BENCH_STAY_AWAKE {
+            info!("clock high = {}, pad high = {}", clock_high, pad_high);
+            Timer::after(Duration::from_secs(1)).await;
+            continue;
+        }
+
         // A pin already sitting at its wake level ends the sleep the moment it starts,
         // and the board then looks like it never sleeps. Wait for the level to clear
         // and name the pin that is holding it.
-        let clock_high = sqw.is_high();
-        let pad_high = pad.is_high();
         if !clock_high || pad_high {
             if !announced {
                 info!(
