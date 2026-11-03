@@ -67,18 +67,30 @@ async fn main(spawner: Spawner) -> ! {
         .unwrap()
         .with_sda(peripherals.GPIO6)
         .with_scl(peripherals.GPIO7);
+    let mut found = 0u8;
     for addr in 0x08..=0x77 {
         let mut b = [0u8; 1];
-        if bus.read(addr, &mut b).is_ok() {
-            info!("found 0x{:02x}", addr)
+        match bus.read(addr, &mut b) {
+            Ok(()) => {
+                found += 1;
+                info!("found 0x{:02x}", addr);
+            }
+            Err(e) => {
+                if addr == ds3231::I2C_ADDR {
+                    info!("0x68 read: {:?}", defmt::Debug2Format(&e));
+                }
+            }
         }
     }
+    info!("scan done, {} device(s)", found);
 
     loop {
         info!("Getting the time");
         let mut t = [0u8; 7];
-        bus.write_read(0x68, &[ds3231::REG_TIME], &mut t).unwrap();
-        info!("{}, {}", t, ds3231::parse_time_registers(t));
+        match bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_TIME], &mut t) {
+            Ok(()) => info!("{}, {}", t, ds3231::parse_time_registers(t)),
+            Err(e) => info!("time read: {:?}", defmt::Debug2Format(&e)),
+        }
         Timer::after(Duration::from_secs(10)).await;
     }
 
