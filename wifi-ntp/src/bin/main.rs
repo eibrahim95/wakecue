@@ -82,6 +82,33 @@ async fn main(spawner: Spawner) -> ! {
 
     info!("Embassy initialized!");
 
+    // The DS3231 keeps a note of its own: STATUS bit 7, the oscillator-stop flag. It
+    // latches when the clock loses power, because the clock then has no idea how much
+    // time went by. Nothing opens the register before we do, so this is read first: it
+    // decides whether the time inside can be trusted at all. Bench readout: a two-second
+    // dark pause at the start of a run means the note was set.
+    let mut bus = I2c::new(peripherals.I2C0, I2Config::default())
+        .unwrap()
+        .with_sda(peripherals.GPIO6)
+        .with_scl(peripherals.GPIO7);
+    let mut status = [0u8; 1];
+    let osf_was_set = match bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_STATUS], &mut status) {
+        Ok(()) => {
+            let set = status[0] & ds3231::STATUS_OSF != 0;
+            info!("STATUS at boot {} (osf {})", status[0], set);
+            set
+        }
+        Err(e) => {
+            info!("clock did not answer: {:?}", defmt::Debug2Format(&e));
+            false
+        }
+    };
+    if osf_was_set {
+        led.set_high(); // active low: off, so the pause is a dark gap
+        Timer::after(Duration::from_millis(2000)).await;
+        led.set_low();
+    }
+
     let mut wifi_controller =
         esp_radio::wifi::WifiController::new(peripherals.WIFI, Default::default())
             .expect("Failed to initialize Wi-Fi controller");
@@ -118,10 +145,6 @@ async fn main(spawner: Spawner) -> ! {
         .await
         .expect("DNS lookup failed");
     info!("NTP server: {}", addrs[0]);
-    let mut bus = I2c::new(peripherals.I2C0, I2Config::default())
-        .unwrap()
-        .with_sda(peripherals.GPIO6)
-        .with_scl(peripherals.GPIO7);
     match ntp_unix_seconds(stack, addrs[0]).await {
         Some(unix) => {
             info!("Unix time: {}", unix);
@@ -147,15 +170,32 @@ async fn main(spawner: Spawner) -> ! {
             // Two minutes out: keeps a full clock-wake cycle short enough to watch.
             let target = now_min + 2;
 
-            // 2. clear a flag the chip may have been carrying
+            // 2. clear the two flags this boot owns. OSF latched when the clock lost power,
+            //    and only a written 0 clears it; the time just written is good, so the latch
+            //    can be released. A1F is the alarm that may have woken the chip. They live in
+            //    the same register, so one write clears both.
             let mut st = [0u8; 1];
             bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_STATUS], &mut st)
                 .expect("status");
             bus.write(
                 ds3231::I2C_ADDR,
-                &[ds3231::REG_STATUS, st[0] & !ds3231::STATUS_A1F],
+                &[
+                    ds3231::REG_STATUS,
+                    st[0] & !(ds3231::STATUS_A1F | ds3231::STATUS_OSF),
+                ],
             )
-            .expect("clear a1f");
+            .expect("clear osf and a1f");
+            // Read it back: the flag is only cleared if the chip says so.
+            let mut st_after = [0u8; 1];
+            bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_STATUS], &mut st_after)
+                .expect("status read back");
+            info!(
+                "STATUS {} (osf {}) -> {} (osf {})",
+                st[0],
+                st[0] & ds3231::STATUS_OSF != 0,
+                st_after[0],
+                st_after[0] & ds3231::STATUS_OSF != 0,
+            );
 
             // 3. program alarm 1
             let a = ds3231::alarm1_registers(target);

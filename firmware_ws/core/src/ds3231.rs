@@ -12,6 +12,9 @@ pub const CONTROL_ALARM1_ONLY: u8 = 0b0000_0101;
 pub const CONTROL_ALARM1_AND_2: u8 = 0b0000_0111;
 pub const STATUS_A1F: u8 = 0b0000_0001;
 pub const STATUS_A2F: u8 = 0b0000_0010;
+/// Status bit 7: latches to 1 when the oscillator stopped (power was lost). Only a written 0
+/// clears it, so it keeps saying "this time may be wrong" until a good time has been written.
+pub const STATUS_OSF: u8 = 0b1000_0000;
 
 fn from_bcd(b: u8) -> u8 { (b >> 4) * 10 + (b & 0x0F) }
 fn to_bcd(v: u8) -> u8 { ((v / 10) << 4) | (v % 10) }
