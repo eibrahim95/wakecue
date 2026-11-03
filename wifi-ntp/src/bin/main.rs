@@ -145,83 +145,85 @@ async fn main(spawner: Spawner) -> ! {
         .await
         .expect("DNS lookup failed");
     info!("NTP server: {}", addrs[0]);
-    match ntp_unix_seconds(stack, addrs[0]).await {
+    // 1. Set the time, if the network hands one over. Everything after this has to run
+    //    either way: the alarm that woke this boot still has to be cleared and the next one
+    //    programmed from the time the clock already holds. Only setting the time needs the
+    //    network. Leaving the alarm half-finished is what pins the chip awake for good.
+    let time_was_set = match ntp_unix_seconds(stack, addrs[0]).await {
         Some(unix) => {
             info!("Unix time: {}", unix);
             print_utc(&unix);
 
-            // set the time
-
-            let regs = lamp_core::ds3231::time_registers(unix);
+            let regs = ds3231::time_registers(unix);
             let mut frame = [0u8; 8];
-            frame[0] = lamp_core::ds3231::REG_TIME;
+            frame[0] = ds3231::REG_TIME;
             frame[1..].copy_from_slice(&regs);
-            bus.write(lamp_core::ds3231::I2C_ADDR, &frame)
-                .expect("write time");
-            info!("Getting the time");
-            let mut t = [0u8; 7];
-            bus.write_read(0x68, &[lamp_core::ds3231::REG_TIME], &mut t)
-                .unwrap();
-            let unix_from_registrs = lamp_core::ds3231::parse_time_registers(t);
-            info!("{}, {}", t, unix_from_registrs);
-            print_utc(&unix_from_registrs);
-
-            let now_min = ds3231::parse_time_registers(t).div_euclid(60);
-            // Two minutes out: keeps a full clock-wake cycle short enough to watch.
-            let target = now_min + 2;
-
-            // 2. clear the two flags this boot owns. OSF latched when the clock lost power,
-            //    and only a written 0 clears it; the time just written is good, so the latch
-            //    can be released. A1F is the alarm that may have woken the chip. They live in
-            //    the same register, so one write clears both.
-            let mut st = [0u8; 1];
-            bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_STATUS], &mut st)
-                .expect("status");
-            bus.write(
-                ds3231::I2C_ADDR,
-                &[
-                    ds3231::REG_STATUS,
-                    st[0] & !(ds3231::STATUS_A1F | ds3231::STATUS_OSF),
-                ],
-            )
-            .expect("clear osf and a1f");
-            // Read it back: the flag is only cleared if the chip says so.
-            let mut st_after = [0u8; 1];
-            bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_STATUS], &mut st_after)
-                .expect("status read back");
-            info!(
-                "STATUS {} (osf {}) -> {} (osf {})",
-                st[0],
-                st[0] & ds3231::STATUS_OSF != 0,
-                st_after[0],
-                st_after[0] & ds3231::STATUS_OSF != 0,
-            );
-
-            // 3. program alarm 1
-            let a = ds3231::alarm1_registers(target);
-            bus.write(
-                ds3231::I2C_ADDR,
-                &[ds3231::REG_ALARM1, a[0], a[1], a[2], a[3]],
-            )
-            .expect("alarm1");
-
-            // 4. arm: alarm drives INT, alarm 1 enabled
-            bus.write(
-                ds3231::I2C_ADDR,
-                &[ds3231::REG_CONTROL, ds3231::CONTROL_ALARM1_ONLY],
-            )
-            .expect("control");
-
-            // 5. watch bit 0
-            info!(
-                "armed for {}, now {}; line high = {}",
-                target,
-                now_min,
-                sqw.is_high()
-            );
+            bus.write(ds3231::I2C_ADDR, &frame).expect("write time");
+            true
         }
-        None => info!("NTP failed"),
+        None => {
+            info!("NTP failed; keeping the time the clock holds");
+            false
+        }
+    };
+
+    // 2. Read back whatever the clock holds now, and take the next alarm from that.
+    let mut t = [0u8; 7];
+    bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_TIME], &mut t)
+        .expect("read time");
+    let now = ds3231::parse_time_registers(t);
+    info!("clock: {}, {}", t, now);
+    print_utc(&now);
+    let now_min = now.div_euclid(60);
+    // Two minutes out: keeps a full clock-wake cycle short enough to watch.
+    let target = now_min + 2;
+
+    // 3. Clear the flags this boot owns. A1F is the alarm that may have woken the chip.
+    //    OSF latches when the clock lost power and only a written 0 clears it, so it is
+    //    cleared only when a fresh time was just written — that write is the sign-off.
+    //    Both live in one register, so one write clears both.
+    let mut st = [0u8; 1];
+    bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_STATUS], &mut st)
+        .expect("status");
+    let mut clear = ds3231::STATUS_A1F;
+    if time_was_set {
+        clear |= ds3231::STATUS_OSF;
     }
+    bus.write(ds3231::I2C_ADDR, &[ds3231::REG_STATUS, st[0] & !clear])
+        .expect("clear flags");
+    // Read it back: a flag is only cleared if the chip says so.
+    let mut st_after = [0u8; 1];
+    bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_STATUS], &mut st_after)
+        .expect("status read back");
+    info!(
+        "STATUS {} (osf {}) -> {} (osf {})",
+        st[0],
+        st[0] & ds3231::STATUS_OSF != 0,
+        st_after[0],
+        st_after[0] & ds3231::STATUS_OSF != 0,
+    );
+
+    // 4. program alarm 1
+    let a = ds3231::alarm1_registers(target);
+    bus.write(
+        ds3231::I2C_ADDR,
+        &[ds3231::REG_ALARM1, a[0], a[1], a[2], a[3]],
+    )
+    .expect("alarm1");
+
+    // 5. arm: alarm drives INT, alarm 1 enabled
+    bus.write(
+        ds3231::I2C_ADDR,
+        &[ds3231::REG_CONTROL, ds3231::CONTROL_ALARM1_ONLY],
+    )
+    .expect("control");
+
+    info!(
+        "armed for {}, now {}; line high = {}",
+        target,
+        now_min,
+        sqw.is_high()
+    );
 
     let mut announced = false;
 
