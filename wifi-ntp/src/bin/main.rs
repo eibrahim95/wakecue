@@ -33,10 +33,6 @@ use lamp_core::ds3231;
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 const NTP_UNIX_OFFSET: i64 = 2_208_988_800;
 
-/// Bench switch: keep the chip awake and print the two wake levels once a second,
-/// so the USB port stays up while the wiring is checked. Set this to `false` to
-/// test sleeping again.
-static BENCH_STAY_AWAKE: bool = true;
 esp_bootloader_esp_idf::esp_app_desc!();
 
 #[allow(
@@ -196,15 +192,9 @@ async fn main(spawner: Spawner) -> ! {
         let clock_high = sqw.is_high();
         let pad_high = pad.is_high();
 
-        if BENCH_STAY_AWAKE {
-            info!("clock high = {}, pad high = {}", clock_high, pad_high);
-            blink_state(&mut led, clock_high, pad_high).await;
-            continue;
-        }
-
-        // A pin already sitting at its wake level ends the sleep the moment it starts,
-        // and the board then looks like it never sleeps. Wait for the level to clear
-        // and name the pin that is holding it.
+        // A pin sitting at its wake level ends the sleep the moment it starts, and
+        // the board then looks like it never sleeps. Wait for the level to clear,
+        // and show on the LED which pin is holding it.
         if !clock_high || pad_high {
             if !announced {
                 info!(
@@ -213,7 +203,7 @@ async fn main(spawner: Spawner) -> ! {
                 );
                 announced = true;
             }
-            Timer::after(Duration::from_millis(100)).await;
+            blink_state(&mut led, clock_high, pad_high).await;
             continue;
         }
 
@@ -236,12 +226,13 @@ async fn main(spawner: Spawner) -> ! {
     // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.2.2/examples
 }
 
-/// Bench readout on the one LED, so the two wake levels can be read without a
-/// serial log. Count the blinks in each burst, then a one-second pause:
+/// Readout on the one LED, so a wake level that is holding the board awake can be
+/// named without a serial log. Count the blinks in each burst, then a one-second
+/// pause:
 ///
-/// - **1 blink** — both levels clear, a real sleep would start here (good).
-/// - **2 blinks** — pad line high while untouched: jumper on the wrong row, or
-///   the module's OUT is stuck high.
+/// - **1 blink** — both levels clear, so the sleep below would start (good).
+/// - **2 blinks** — pad line high while untouched: jumper on the wrong row, or the
+///   module's OUT is latched high.
 /// - **3 blinks** — clock line low: Alarm 1 is due, so the SQW pin pulls low.
 /// - **4 blinks** — both of the above.
 async fn blink_state(led: &mut Output<'static>, clock_high: bool, pad_high: bool) {
