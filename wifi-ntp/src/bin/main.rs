@@ -23,7 +23,12 @@ extern crate alloc;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{IpAddress, Stack};
 use embassy_time::with_timeout;
+use esp_hal::gpio::{Event, Input, InputConfig, Pull, WakeupConfig};
+use esp_hal::i2c::master::{Config as I2Config, I2c};
+use esp_hal::rtc_cntl::sleep::{LowPower, RtcSleepConfig};
 use lamp_core::calendar::{civil_from_days, utc_to_egypt};
+use lamp_core::ds3231;
+
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 const NTP_UNIX_OFFSET: i64 = 2_208_988_800;
@@ -40,7 +45,10 @@ async fn main(spawner: Spawner) -> ! {
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
-
+    let mut sqw = Input::new(
+        peripherals.GPIO3,
+        InputConfig::default().with_pull(Pull::Up),
+    );
     // The following pins are used to bootstrap the chip. They are available
     // for use, but check the datasheet of the module for more information on them.
     // - GPIO2
@@ -94,34 +102,81 @@ async fn main(spawner: Spawner) -> ! {
     info!("IP: {}", cfg.address);
 
     let addrs = stack
-        .dns_query("pool.ntp.org", embassy_net::dns::DnsQueryType::A)
+        .dns_query("time.google.com", embassy_net::dns::DnsQueryType::A)
         .await
         .expect("DNS lookup failed");
     info!("NTP server: {}", addrs[0]);
+    let mut bus = I2c::new(peripherals.I2C0, I2Config::default())
+        .unwrap()
+        .with_sda(peripherals.GPIO6)
+        .with_scl(peripherals.GPIO7);
     match ntp_unix_seconds(stack, addrs[0]).await {
         Some(unix) => {
             info!("Unix time: {}", unix);
-            let utc_min = unix.div_euclid(60);
-            let local_min = utc_to_egypt(utc_min);
-            let (y, mo, d) = civil_from_days(local_min.div_euclid(1440) as i32);
-            let minute_of_day = local_min.rem_euclid(1440);
+            print_utc(&unix);
+
+            // set the time
+
+            let regs = lamp_core::ds3231::time_registers(unix);
+            let mut frame = [0u8; 8];
+            frame[0] = lamp_core::ds3231::REG_TIME;
+            frame[1..].copy_from_slice(&regs);
+            bus.write(lamp_core::ds3231::I2C_ADDR, &frame)
+                .expect("write time");
+            info!("Getting the time");
+            let mut t = [0u8; 7];
+            bus.write_read(0x68, &[lamp_core::ds3231::REG_TIME], &mut t)
+                .unwrap();
+            let unix_from_registrs = lamp_core::ds3231::parse_time_registers(t);
+            info!("{}, {}", t, unix_from_registrs);
+            print_utc(&unix_from_registrs);
+
+            let now_min = ds3231::parse_time_registers(t).div_euclid(60);
+            let target = now_min + 2;
+
+            // 2. clear a flag the chip may have been carrying
+            let mut st = [0u8; 1];
+            bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_STATUS], &mut st)
+                .expect("status");
+            bus.write(
+                ds3231::I2C_ADDR,
+                &[ds3231::REG_STATUS, st[0] & !ds3231::STATUS_A1F],
+            )
+            .expect("clear a1f");
+
+            // 3. program alarm 1
+            let a = ds3231::alarm1_registers(target);
+            bus.write(
+                ds3231::I2C_ADDR,
+                &[ds3231::REG_ALARM1, a[0], a[1], a[2], a[3]],
+            )
+            .expect("alarm1");
+
+            // 4. arm: alarm drives INT, alarm 1 enabled
+            bus.write(
+                ds3231::I2C_ADDR,
+                &[ds3231::REG_CONTROL, ds3231::CONTROL_ALARM1_ONLY],
+            )
+            .expect("control");
+
+            // 5. watch bit 0
             info!(
-                "{}-{}-{} {}:{}:{} (UTC+{})",
-                y,
-                mo,
-                d,
-                minute_of_day / 60,
-                minute_of_day % 60,
-                unix.rem_euclid(60),
-                (local_min - utc_min) / 60
+                "armed for {}, now {}; line high = {}",
+                target,
+                now_min,
+                sqw.is_high()
             );
         }
         None => info!("NTP failed"),
     }
 
     loop {
-        info!("Hello world!");
-        Timer::after(Duration::from_secs(10)).await;
+        sqw.apply_wakeup_config(&WakeupConfig::default().with_low_power_path(true))
+            .expect("arm GPIO3 as a wake source");
+        sqw.listen(Event::LowLevel);
+
+        let mut lp = LowPower::new(peripherals.LPWR);
+        lp.sleep_deep(RtcSleepConfig::deep());
     }
 
     // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.2.2/examples
@@ -153,4 +208,20 @@ async fn ntp_unix_seconds(stack: Stack<'_>, server: IpAddress) -> Option<i64> {
     }
     let secs = u32::from_be_bytes([reply[40], reply[41], reply[42], reply[43]]);
     Some(secs as i64 - NTP_UNIX_OFFSET)
+}
+fn print_utc(unix: &i64) {
+    let utc_min = unix.div_euclid(60);
+    let local_min = utc_to_egypt(utc_min);
+    let (y, mo, d) = civil_from_days(local_min.div_euclid(1440) as i32);
+    let minute_of_day = local_min.rem_euclid(1440);
+    info!(
+        "{}-{}-{} {}:{}:{} (UTC+{})",
+        y,
+        mo,
+        d,
+        minute_of_day / 60,
+        minute_of_day % 60,
+        unix.rem_euclid(60),
+        (local_min - utc_min) / 60
+    );
 }
