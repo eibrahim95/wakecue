@@ -10,7 +10,7 @@ path = "./src/bin/main.rs"
 
 [dependencies]
 esp-hal = { version = "~1.2.2", features = ["defmt", "esp32c3"] }
-lamp-core = {path = "../firmware_ws/core"}
+lamp-core = {path = "../../firmware_ws/core"}
 
 defmt                  = "1.0.1"
 esp-bootloader-esp-idf = { version = "0.6.0", features = ["defmt", "esp32c3"] }
