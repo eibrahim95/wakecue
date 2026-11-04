@@ -1,4 +1,4 @@
-//! The e-paper panel: the tiny bit of SPI glue the driver needs, and the first frame.
+//! The e-paper panel: the tiny bit of SPI glue the driver needs, and the face it shows.
 //!
 //! The panel is the only device on the bus, so its chip-select is wired to ground and
 //! there is no pin to drive for it. That is why this speaks the driver's data/command
@@ -6,12 +6,14 @@
 
 use display_interface::{DataFormat, DisplayError, WriteOnlyDataCommand};
 use embedded_graphics::mono_font::MonoTextStyle;
-use embedded_graphics::mono_font::ascii::FONT_10X20;
+use embedded_graphics::mono_font::ascii::{FONT_6X10, FONT_10X20};
 use embedded_graphics::prelude::*;
+use embedded_graphics::primitives::{Line, PrimitiveStyle};
 use embedded_graphics::text::Text;
 use esp_hal::delay::Delay;
 use esp_hal::gpio::{Input, Output};
 use esp_hal::spi::master::Spi;
+use lamp_core::calendar::{DATE_LEN, HHMM_LEN, format_date, format_hhmm, utc_to_egypt};
 use weact_studio_epd::graphics::Display213BlackWhite;
 use weact_studio_epd::{Color, WeActStudio213BlackWhiteDriver};
 
@@ -47,13 +49,23 @@ impl WriteOnlyDataCommand for PanelBus<'_> {
     }
 }
 
-/// Draw one frame we wrote ourselves, then put the panel back to sleep. A sleeping
-/// panel holds its image with no power, which is why the lamp can leave it alone.
+/// Draw the standby face — Cairo time, the date, and what the lamp will do next — then put the
+/// panel back to sleep. A sleeping panel holds its image with no power, which is why the lamp
+/// can leave it alone; the cost is the two-second full refresh each boot.
+///
+/// `next` is the event the boot armed and a short word for it, or `None` when the clock's time
+/// cannot be trusted, in which case the face says so instead of pointing at a time.
 #[allow(
     clippy::large_stack_frames,
     reason = "the frame buffer is the point of this function"
 )]
-pub fn first_frame(bus: PanelBus<'static>, busy: Input<'static>, rst: Output<'static>) {
+pub fn clock_face(
+    bus: PanelBus<'static>,
+    busy: Input<'static>,
+    rst: Output<'static>,
+    now_min: i64,
+    next: Option<(i64, &str)>,
+) {
     let mut driver = WeActStudio213BlackWhiteDriver::new(bus, busy, rst, Delay::new());
 
     if let Err(e) = driver.init() {
@@ -61,15 +73,43 @@ pub fn first_frame(bus: PanelBus<'static>, busy: Input<'static>, rst: Output<'st
         return;
     }
 
+    // The clock keeps UTC; the face shows the time on the wall.
+    let local = utc_to_egypt(now_min);
+    let mut time_buf = [0u8; HHMM_LEN];
+    let mut date_buf = [0u8; DATE_LEN];
+    let time = format_hhmm(local, &mut time_buf);
+    let date = format_date(local, &mut date_buf);
+
     let mut frame = Display213BlackWhite::new();
     frame.clear(Color::White);
-    let style = MonoTextStyle::new(&FONT_10X20, Color::Black);
-    let _ = Text::new("wakecue", Point::new(6, 26), style).draw(&mut frame);
-    let _ = Text::new("display works", Point::new(6, 54), style).draw(&mut frame);
-    let _ = Text::new("250 x 122", Point::new(6, 82), style).draw(&mut frame);
+    let big = MonoTextStyle::new(&FONT_10X20, Color::Black);
+    let small = MonoTextStyle::new(&FONT_6X10, Color::Black);
+    let rule = PrimitiveStyle::with_stroke(Color::Black, 1);
+
+    let _ = Text::new(time, Point::new(12, 40), big).draw(&mut frame);
+    let _ = Line::new(Point::new(12, 54), Point::new(238, 54))
+        .into_styled(rule)
+        .draw(&mut frame);
+    let _ = Text::new(date, Point::new(12, 76), small).draw(&mut frame);
+
+    match next {
+        Some((at, label)) => {
+            let mut at_buf = [0u8; HHMM_LEN];
+            let at = format_hhmm(utc_to_egypt(at), &mut at_buf);
+            let _ = Text::new(label, Point::new(12, 98), small).draw(&mut frame);
+            // FONT_6X10 advances six pixels per character, so the time follows the label.
+            let after = 12 + label.len() as i32 * 6 + 6;
+            let _ = Text::new(at, Point::new(after, 98), small).draw(&mut frame);
+            defmt::info!("panel: face drawn, {} next {}", time, at);
+        }
+        None => {
+            let _ = Text::new("time not set", Point::new(12, 98), small).draw(&mut frame);
+            defmt::info!("panel: face drawn, {} with no trusted time", time);
+        }
+    }
 
     match driver.full_update(&frame) {
-        Ok(()) => defmt::info!("panel: first frame drawn"),
+        Ok(()) => {}
         Err(e) => defmt::info!("panel: refresh failed: {:?}", defmt::Debug2Format(&e)),
     }
 

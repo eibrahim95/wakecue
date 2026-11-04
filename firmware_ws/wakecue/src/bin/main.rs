@@ -21,7 +21,7 @@ use lamp_core::calendar::{FORMAT_LEN, format_minutes, utc_to_egypt};
 use lamp_core::ds3231;
 use lamp_core::schedule::{self, Action, PrayerTable, Rule, When};
 use lamp_core::settings::{MAX_RULES, Settings};
-use wakecue::display::{PanelBus, first_frame};
+use wakecue::display::{PanelBus, clock_face};
 
 /// The prayer table from `prayer-gen` (Cairo, ten years from 2026-01-01), built into the image.
 /// `just prayers` regenerates it; the day range travels inside the file.
@@ -39,6 +39,17 @@ impl Format for Stamp {
     fn format(&self, f: Formatter) {
         let mut buf = [0u8; FORMAT_LEN];
         defmt::write!(f, "{}", format_minutes(self.0, &mut buf));
+    }
+}
+
+/// A short word for a scheduled action, for the one line the face has room for.
+fn action_label(action: Action) -> &'static str {
+    match action {
+        Action::Sunrise { .. } => "sunrise",
+        Action::Play { .. } => "sound",
+        Action::LampOn => "lamp on",
+        Action::LampOff => "lamp off",
+        Action::Alarm => "alarm",
     }
 }
 
@@ -66,10 +77,6 @@ fn main() -> ! {
     let dc = Output::new(peripherals.GPIO2, Level::Low, OutputConfig::default());
     let rst = Output::new(peripherals.GPIO0, Level::High, OutputConfig::default());
     let busy = Input::new(peripherals.GPIO1, InputConfig::default());
-
-    // Bring-up only: every boot redraws the same frame, which costs a full refresh
-    // (~2 s). Once the pages exist, the panel is only redrawn when something changes.
-    first_frame(PanelBus::new(spi, dc), busy, rst);
 
     let mut sqw = Input::new(
         peripherals.GPIO3,
@@ -107,6 +114,9 @@ fn main() -> ! {
     );
 
     let mut target = now_min + 1;
+    // What the face says the lamp does next, decided below; `None` means the clock cannot be
+    // trusted, so the face says that instead of pointing at a time.
+    let mut face_next: Option<(i64, &str)> = None;
     if osf {
         // There is no Wi-Fi and no settings page in this crate yet, so the time cannot be
         // fetched. Keep waking once a minute rather than parking the lamp on a clock it
@@ -148,10 +158,16 @@ fn main() -> ! {
                     next.utc_min - now_min
                 );
                 target = next.utc_min;
+                face_next = Some((next.utc_min, action_label(next.action)));
             }
             None => info!("nothing scheduled; waking in a minute"),
         }
     }
+
+    // The panel is the lamp's face, so it is drawn once the boot knows what it is looking at:
+    // a face that woke before the clock was read could only show yesterday's minute. Bring-up
+    // cost: a full refresh (~2 s) on every wake, until the pages and partial refresh exist.
+    clock_face(PanelBus::new(spi, dc), busy, rst, now_min, face_next);
 
     // A1F is the alarm that woke this boot; while it is set the line stays low, which would
     // end the next sleep immediately. OSF is deliberately left alone: only a boot that

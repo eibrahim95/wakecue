@@ -56,11 +56,18 @@ pub fn utc_to_egypt(utc_min: i64) -> i64 {
 /// Width of the text `format_minutes` writes.
 pub const FORMAT_LEN: usize = 16;
 
-fn put(buf: &mut [u8; FORMAT_LEN], at: usize, width: usize, v: u32) {
+fn put(buf: &mut [u8], at: usize, width: usize, v: u32) {
     let mut v = v;
     for i in (0..width).rev() {
         buf[at + i] = b'0' + (v % 10) as u8;
         v /= 10;
+    }
+}
+
+fn append(buf: &mut [u8], at: &mut usize, s: &str) {
+    for &b in s.as_bytes() {
+        buf[*at] = b;
+        *at += 1;
     }
 }
 
@@ -81,6 +88,44 @@ pub fn format_minutes(min: i64, buf: &mut [u8; FORMAT_LEN]) -> &str {
     buf[13] = b':';
     put(buf, 14, 2, m % 60);
     core::str::from_utf8(buf).unwrap_or("")
+}
+
+/// Width of the text `format_hhmm` writes.
+pub const HHMM_LEN: usize = 5;
+
+/// Write `min` as `HH:MM` into `buf`; no zone is applied.
+pub fn format_hhmm(min: i64, buf: &mut [u8; HHMM_LEN]) -> &str {
+    let m = min.rem_euclid(1440) as u32;
+    put(buf, 0, 2, m / 60);
+    buf[2] = b':';
+    put(buf, 3, 2, m % 60);
+    core::str::from_utf8(buf).unwrap_or("")
+}
+
+const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/// Width of the longest text `format_date` writes, `Wed 30 Sep 2026`.
+pub const DATE_LEN: usize = 15;
+
+/// Write `min`'s date as `Thu 5 Nov 2026` into `buf`; no zone is applied.
+pub fn format_date(min: i64, buf: &mut [u8; DATE_LEN]) -> &str {
+    let day = min.div_euclid(1440) as i32;
+    let (y, mo, d) = civil_from_days(day);
+    let mut n = 0;
+    append(buf, &mut n, WEEKDAYS[weekday(day) as usize]);
+    append(buf, &mut n, " ");
+    let w = if d < 10 { 1 } else { 2 };
+    put(buf, n, w, d);
+    n += w;
+    append(buf, &mut n, " ");
+    append(buf, &mut n, MONTHS[mo as usize - 1]);
+    append(buf, &mut n, " ");
+    put(buf, n, 4, y as u32);
+    n += 4;
+    core::str::from_utf8(&buf[..n]).unwrap_or("")
 }
 
 #[cfg(test)]
@@ -147,6 +192,30 @@ mod tests {
         assert_eq!(format_minutes(utc_to_egypt(winter), &mut b), "2026-11-05 01:09");
         let summer = utc(2026, 7, 1, 23, 9);
         assert_eq!(format_minutes(utc_to_egypt(summer), &mut b), "2026-07-02 02:09");
+    }
+
+    #[test]
+    fn formats_a_clock_time_and_a_spoken_date() {
+        let mut hhmm = [0u8; HHMM_LEN];
+        let mut date = [0u8; DATE_LEN];
+        // Midnight and a past-the-hour time both zero-pad.
+        assert_eq!(format_hhmm(utc(2026, 11, 4, 23, 16), &mut hhmm), "23:16");
+        assert_eq!(format_hhmm(utc(2026, 11, 4, 0, 0), &mut hhmm), "00:00");
+        assert_eq!(format_hhmm(utc(2026, 11, 4, 9, 5), &mut hhmm), "09:05");
+        // One-digit and two-digit days, and the longest text the buffer holds.
+        assert_eq!(format_date(utc(2026, 11, 4, 23, 16), &mut date), "Wed 4 Nov 2026");
+        assert_eq!(format_date(utc(2026, 9, 30, 0, 0), &mut date), "Wed 30 Sep 2026");
+        assert_eq!(format_date(utc(2024, 2, 29, 12, 0), &mut date), "Thu 29 Feb 2024");
+        assert_eq!(format_date(utc(2026, 1, 4, 0, 0), &mut date), "Sun 4 Jan 2026");
+    }
+
+    #[test]
+    fn the_date_follows_cairo_past_midnight() {
+        let mut date = [0u8; DATE_LEN];
+        let mut hhmm = [0u8; HHMM_LEN];
+        let local = utc_to_egypt(utc(2026, 11, 4, 23, 16));
+        assert_eq!(format_date(local, &mut date), "Thu 5 Nov 2026");
+        assert_eq!(format_hhmm(local, &mut hhmm), "01:16");
     }
 
     #[test]
