@@ -1,0 +1,28 @@
+# Bench recipes for the scratch firmware.
+#
+# The Wi-Fi credentials are baked in at compile time, so WIFI_SSID and
+# WIFI_PASSWORD must be in the environment: `set dotenv-load` takes them from
+# the untracked .env next to this file.
+#
+# Flashing deliberately leaves the serial monitor off. Attaching one straight
+# after the reset is what ended in `I/O error` every time the chip went to
+# sleep; `just monitor` is there for when a log is actually needed.
+
+set dotenv-load
+
+bin := "target/riscv32imc-unknown-none-elf/release/wifi-ntp"
+
+# Build and flash. Plain `just` does this.
+default: flash
+
+# Compile the firmware for the chip.
+build:
+    cargo build --release
+
+# Flash the release binary, then reset the chip with the watchdog.
+flash: build
+    espflash flash --chip esp32c3 --after watchdog-reset {{bin}}
+
+# Read the defmt log while the chip is awake. The port disappears when it sleeps.
+monitor:
+    espflash monitor --chip esp32c3 -L defmt --elf {{bin}}
