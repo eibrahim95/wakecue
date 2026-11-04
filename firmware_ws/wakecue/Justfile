@@ -19,6 +19,11 @@ flash: build
 buttons:
     cargo run --release --bin buttons
 
+# The lamp itself, flashed and watched. Its boot takes seconds and then it sleeps,
+# so the log ends there; the panel refreshing again is what shows the next wake.
+lamp:
+    cargo run --release --bin wakecue
+
 # Read the defmt log while the chip is awake. Name the binary you flashed —
 # `just monitor buttons`, or nothing for the lamp itself.
 monitor name="wakecue":
