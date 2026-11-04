@@ -23,6 +23,11 @@ build:
 flash: build
     espflash flash --chip esp32c3 --after watchdog-reset {{bin}}
 
+# Write the clock from NTP and stay awake, so the USB port never disappears.
+set-time:
+    cargo build --release --bin set-time
+    espflash flash --chip esp32c3 --after watchdog-reset target/riscv32imc-unknown-none-elf/release/set-time
+
 # Read the defmt log while the chip is awake. The port disappears when it sleeps.
 monitor:
     espflash monitor --chip esp32c3 -L defmt --elf {{bin}}
