@@ -14,6 +14,11 @@ build:
 flash: build
     espflash flash --chip esp32c3 --after watchdog-reset {{bin}}
 
+# Read the four buttons and stay awake. Watch with `just monitor`.
+buttons:
+    cargo build --release --bin buttons
+    espflash flash --chip esp32c3 --after watchdog-reset target/riscv32imc-unknown-none-elf/release/buttons
+
 # Read the defmt log while the chip is awake.
 monitor:
     espflash monitor --chip esp32c3 -L defmt --elf {{bin}}

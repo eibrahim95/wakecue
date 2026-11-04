@@ -1,6 +1,7 @@
 //! The four menu buttons on a PCF8574 and the touch pad's tap/hold decision.
 
-/// PCF8574 address with A0..A2 high (the usual module default); 0x38 for the PCF8574A.
+/// PCF8574 address with A0..A2 tied low, which is how the module is strapped here;
+/// 0x38 and up is the PCF8574A variant.
 pub const PCF8574_ADDR: u8 = 0x20;
 /// Writing 0xFF releases every pin to its weak pull-up so the buttons can pull them low.
 pub const RELEASE_ALL: u8 = 0xFF;
