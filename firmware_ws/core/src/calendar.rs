@@ -53,6 +53,36 @@ pub fn utc_to_egypt(utc_min: i64) -> i64 {
     utc_min + egypt_offset_min(utc_min)
 }
 
+/// Width of the text `format_minutes` writes.
+pub const FORMAT_LEN: usize = 16;
+
+fn put(buf: &mut [u8; FORMAT_LEN], at: usize, width: usize, v: u32) {
+    let mut v = v;
+    for i in (0..width).rev() {
+        buf[at + i] = b'0' + (v % 10) as u8;
+        v /= 10;
+    }
+}
+
+/// Write `min` (minutes since the Unix epoch) as `YYYY-MM-DD HH:MM` into `buf` and return it.
+///
+/// No zone is applied: pass UTC for UTC, or `utc_to_egypt(min)` for Cairo. Written for the
+/// 1970-01-01..2100 range the clock can hold; a time before it would print a nonsense year.
+pub fn format_minutes(min: i64, buf: &mut [u8; FORMAT_LEN]) -> &str {
+    let (y, mo, d) = civil_from_days(min.div_euclid(1440) as i32);
+    let m = min.rem_euclid(1440) as u32;
+    put(buf, 0, 4, y as u32);
+    buf[4] = b'-';
+    put(buf, 5, 2, mo);
+    buf[7] = b'-';
+    put(buf, 8, 2, d);
+    buf[10] = b' ';
+    put(buf, 11, 2, m / 60);
+    buf[13] = b':';
+    put(buf, 14, 2, m % 60);
+    core::str::from_utf8(buf).unwrap_or("")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -94,6 +124,29 @@ mod tests {
         assert_eq!(egypt_offset_min(utc(2026, 10, 29, 21, 0)), 120);
         assert_eq!(egypt_offset_min(utc(2026, 7, 1, 0, 0)), 180);
         assert_eq!(egypt_offset_min(utc(2026, 1, 1, 0, 0)), 120);
+    }
+
+    #[test]
+    fn formats_a_minute_count_as_a_date_and_time() {
+        let mut b = [0u8; FORMAT_LEN];
+        assert_eq!(format_minutes(0, &mut b), "1970-01-01 00:00");
+        assert_eq!(format_minutes(utc(2026, 11, 4, 23, 9), &mut b), "2026-11-04 23:09");
+        // Zero padding on every field, and the last minute of a day.
+        assert_eq!(format_minutes(utc(2026, 1, 5, 0, 0), &mut b), "2026-01-05 00:00");
+        assert_eq!(format_minutes(utc(2026, 1, 5, 0, 0) - 1, &mut b), "2026-01-04 23:59");
+        // A leap day, and the end of the range the clock can hold.
+        assert_eq!(format_minutes(utc(2024, 2, 29, 12, 0), &mut b), "2024-02-29 12:00");
+        assert_eq!(format_minutes(utc(2099, 12, 31, 23, 59), &mut b), "2099-12-31 23:59");
+    }
+
+    #[test]
+    fn cairo_is_two_or_three_hours_ahead_of_the_same_minute() {
+        let mut b = [0u8; FORMAT_LEN];
+        let winter = utc(2026, 11, 4, 23, 9);
+        assert_eq!(format_minutes(winter, &mut b), "2026-11-04 23:09");
+        assert_eq!(format_minutes(utc_to_egypt(winter), &mut b), "2026-11-05 01:09");
+        let summer = utc(2026, 7, 1, 23, 9);
+        assert_eq!(format_minutes(utc_to_egypt(summer), &mut b), "2026-07-02 02:09");
     }
 
     #[test]

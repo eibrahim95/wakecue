@@ -7,7 +7,7 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
-use defmt::info;
+use defmt::{Format, Formatter, info};
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::delay::Delay;
@@ -17,6 +17,7 @@ use esp_hal::rtc_cntl::sleep::{LowPower, RtcSleepConfig};
 use esp_hal::spi::master::{Config as SpiConfig, Spi};
 use esp_hal::time::Rate;
 use esp_println as _;
+use lamp_core::calendar::{FORMAT_LEN, format_minutes, utc_to_egypt};
 use lamp_core::ds3231;
 use lamp_core::schedule::{self, Action, PrayerTable, Rule, When};
 use lamp_core::settings::{MAX_RULES, Settings};
@@ -29,6 +30,17 @@ static PRAYERS: &[u8] = include_bytes!("../../prayers-cairo.bin");
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
+
+/// A minute count printed as `YYYY-MM-DD HH:MM`, so a log line says when instead of making the
+/// reader divide.
+struct Stamp(i64);
+
+impl Format for Stamp {
+    fn format(&self, f: Formatter) {
+        let mut buf = [0u8; FORMAT_LEN];
+        defmt::write!(f, "{}", format_minutes(self.0, &mut buf));
+    }
+}
 
 /// A wake is a reset, so this function is the whole program: read the clock, run what is
 /// due, arm the next event, sleep. Nothing is remembered in RAM because nothing survives.
@@ -87,7 +99,12 @@ fn main() -> ! {
     bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_TIME], &mut t)
         .expect("read time");
     let now_min = ds3231::parse_time_registers(t).div_euclid(60);
-    info!("boot: osf {}, now {} min", osf, now_min);
+    info!(
+        "boot: osf {}, now {} UTC = {} Cairo",
+        osf,
+        Stamp(now_min),
+        Stamp(utc_to_egypt(now_min))
+    );
 
     let mut target = now_min + 1;
     if osf {
@@ -96,7 +113,7 @@ fn main() -> ! {
         // does not trust; this branch becomes the "set the time" page.
         info!("osf set: time untrusted, arming a one-minute wake");
     } else {
-        // TODO: the generated prayer table, and settings from flash once the pages exist.
+        // TODO: settings from flash once the menu and its pages exist.
         let settings = Settings::default();
         let mut rules = [Rule {
             days: 0,
@@ -112,16 +129,22 @@ fn main() -> ! {
         if let Some(due) = schedule::next_event(from, &rules[..count], &prayers)
             && due.utc_min <= now_min
         {
-            info!("due: {:?}", defmt::Debug2Format(&due.action));
+            info!(
+                "due: {:?} at {} UTC = {} Cairo",
+                defmt::Debug2Format(&due.action),
+                Stamp(due.utc_min),
+                Stamp(utc_to_egypt(due.utc_min))
+            );
             from = due.utc_min + 1;
         }
 
         match schedule::next_event(from, &rules[..count], &prayers) {
             Some(next) => {
                 info!(
-                    "next: {:?} at {} min ({} from now)",
+                    "next: {:?} at {} UTC = {} Cairo ({} min from now)",
                     defmt::Debug2Format(&next.action),
-                    next.utc_min,
+                    Stamp(next.utc_min),
+                    Stamp(utc_to_egypt(next.utc_min)),
                     next.utc_min - now_min
                 );
                 target = next.utc_min;
@@ -174,7 +197,11 @@ fn main() -> ! {
         .expect("arm GPIO4 as a wake source");
     pad.listen(Event::HighLevel);
 
-    info!("sleeping until {} min", target);
+    info!(
+        "sleeping until {} UTC = {} Cairo",
+        Stamp(target),
+        Stamp(utc_to_egypt(target))
+    );
     let mut lp = LowPower::new(peripherals.LPWR);
     lp.sleep_deep(RtcSleepConfig::deep());
 }
