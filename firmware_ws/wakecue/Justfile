@@ -14,10 +14,10 @@ build:
 flash: build
     espflash flash --chip esp32c3 --after watchdog-reset {{bin}}
 
-# Read the four buttons and stay awake. Watch with `just monitor buttons`.
+# Read the four buttons and stay awake, with the log attached. `cargo run` flashes
+# and monitors in one go and skips the extra reset that silences `espflash monitor`.
 buttons:
-    cargo build --release --bin buttons
-    espflash flash --chip esp32c3 --after watchdog-reset target/riscv32imc-unknown-none-elf/release/buttons
+    cargo run --release --bin buttons
 
 # Read the defmt log while the chip is awake. Name the binary you flashed —
 # `just monitor buttons`, or nothing for the lamp itself.
