@@ -14,8 +14,15 @@ use esp_hal::delay::Delay;
 use esp_hal::gpio::{Input, Output};
 use esp_hal::spi::master::Spi;
 use lamp_core::calendar::{DATE_LEN, HHMM_LEN, format_date, format_hhmm, utc_to_egypt};
-use weact_studio_epd::graphics::Display213BlackWhite;
+use weact_studio_epd::graphics::{Display213BlackWhite, DisplayRotation};
 use weact_studio_epd::{Color, WeActStudio213BlackWhiteDriver};
+
+/// Which way up the panel sits in the lamp. The driver's own buffer is 128 wide by 250 tall —
+/// the glass turned on its short edge, six of those columns invisible behind the border — so
+/// without a rotation the face comes out portrait. Ninety degrees makes the drawing area
+/// 250 wide by 128 tall, matching the window in the base; if the face lands upside down, this
+/// is the line to change to `Rotate270`.
+const ROTATION: DisplayRotation = DisplayRotation::Rotate90;
 
 /// Write-only SPI with the data/command line: low sends a command, high sends data.
 pub struct PanelBus<'d> {
@@ -81,29 +88,30 @@ pub fn clock_face(
     let date = format_date(local, &mut date_buf);
 
     let mut frame = Display213BlackWhite::new();
+    frame.set_rotation(ROTATION);
     frame.clear(Color::White);
     let big = MonoTextStyle::new(&FONT_10X20, Color::Black);
     let small = MonoTextStyle::new(&FONT_6X10, Color::Black);
     let rule = PrimitiveStyle::with_stroke(Color::Black, 1);
 
-    let _ = Text::new(time, Point::new(12, 40), big).draw(&mut frame);
-    let _ = Line::new(Point::new(12, 54), Point::new(238, 54))
+    let _ = Text::new(time, Point::new(14, 46), big).draw(&mut frame);
+    let _ = Line::new(Point::new(14, 60), Point::new(236, 60))
         .into_styled(rule)
         .draw(&mut frame);
-    let _ = Text::new(date, Point::new(12, 76), small).draw(&mut frame);
+    let _ = Text::new(date, Point::new(14, 84), small).draw(&mut frame);
 
     match next {
         Some((at, label)) => {
             let mut at_buf = [0u8; HHMM_LEN];
             let at = format_hhmm(utc_to_egypt(at), &mut at_buf);
-            let _ = Text::new(label, Point::new(12, 98), small).draw(&mut frame);
+            let _ = Text::new(label, Point::new(14, 108), small).draw(&mut frame);
             // FONT_6X10 advances six pixels per character, so the time follows the label.
-            let after = 12 + label.len() as i32 * 6 + 6;
-            let _ = Text::new(at, Point::new(after, 98), small).draw(&mut frame);
+            let after = 14 + label.len() as i32 * 6 + 6;
+            let _ = Text::new(at, Point::new(after, 108), small).draw(&mut frame);
             defmt::info!("panel: face drawn, {} next {}", time, at);
         }
         None => {
-            let _ = Text::new("time not set", Point::new(12, 98), small).draw(&mut frame);
+            let _ = Text::new("time not set", Point::new(14, 108), small).draw(&mut frame);
             defmt::info!("panel: face drawn, {} with no trusted time", time);
         }
     }
