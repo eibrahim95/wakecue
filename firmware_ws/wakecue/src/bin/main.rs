@@ -22,6 +22,10 @@ use lamp_core::schedule::{self, Action, PrayerTable, Rule, When};
 use lamp_core::settings::{MAX_RULES, Settings};
 use wakecue::display::{PanelBus, first_frame};
 
+/// The prayer table from `prayer-gen` (Cairo, ten years from 2026-01-01), built into the image.
+/// `just prayers` regenerates it; the day range travels inside the file.
+static PRAYERS: &[u8] = include_bytes!("../../prayers-cairo.bin");
+
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -100,10 +104,7 @@ fn main() -> ! {
             action: Action::LampOff,
         }; MAX_RULES];
         let count = settings.rules(&mut rules);
-        let prayers = PrayerTable {
-            first_day: 0,
-            data: &[],
-        };
+        let prayers = PrayerTable::from_blob(PRAYERS).expect("prayer table");
 
         // Anything whose time has arrived is this boot's job. The alarm fired, so the event
         // is at or before now; after running it, look again from the following minute.
