@@ -1,8 +1,10 @@
 # Keep compilation settings in this file and user/runtime settings in `esp-config.toml`.
 include = ["esp-config.toml"]
 
+# `--after watchdog-reset`: the chip is asleep whenever the lamp is idle, so a flash starts
+# from the ROM bootloader (hold BOOT, tap RST) and the DTR/RTS reset would leave it there.
 [target.riscv32imc-unknown-none-elf]
-runner = "espflash flash --monitor --chip esp32c3 --log-format defmt"
+runner = "espflash flash --monitor --chip esp32c3 --after watchdog-reset --log-format defmt"
 
 [build]
 rustflags = [
