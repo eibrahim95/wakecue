@@ -21,7 +21,8 @@ buttons:
 
 # The lamp itself, flashed and watched. It sleeps a couple of seconds after boot, which
 # takes the USB port with it, unless DEV_MODE at the top of src/bin/main.rs is true: then it
-# stays awake and turns into a console for the buttons, the pad and the clock.
+# stays awake and turns into a console for the buttons, the pad and the clock. A board that is
+# asleep or in the bootloader cannot use this: `just flash` first, then this.
 lamp:
     cargo run --release --bin wakecue
 
