@@ -109,57 +109,67 @@ async fn main(spawner: Spawner) -> ! {
         led.set_low();
     }
 
-    let mut wifi_controller =
-        esp_radio::wifi::WifiController::new(peripherals.WIFI, Default::default())
-            .expect("Failed to initialize Wi-Fi controller");
-    let station = Config::Station(
-        StationConfig::default()
-            .with_ssid(env!("WIFI_SSID").try_into().unwrap())
-            .with_authentication(AuthenticationMethodConfig::Wpa2Personal(
-                env!("WIFI_PASSWORD").try_into().unwrap(),
-            )),
-    );
-    let wifi_interface = esp_radio::wifi::Interface::station();
-    wifi_controller.set_config(&station).unwrap();
-    static RESOURCES: StaticCell<StackResources<4>> = StaticCell::new();
-    let rng = Rng::new();
-    let seed = ((rng.random() as u64) << 32) | rng.random() as u64;
-    let (stack, runner) = embassy_net::new(
-        wifi_interface,
-        embassy_net::Config::dhcpv4(Default::default()),
-        RESOURCES.init(StackResources::new()),
-        seed,
-    );
-    spawner.spawn(net_task(runner).unwrap());
+    // The radio exists for one job only: getting a time the clock cannot give. When the
+    // clock's flag is clear its registers can be trusted, so the radio is never even
+    // started — the boot goes straight to reading the time and arming the next alarm.
+    // That is the finished lamp's boot path: no Wi-Fi, no wait, back to sleep in under a
+    // second. Only a clock that says it lost power pays for a network round trip.
+    let time_from_network = if osf_was_set {
+        let mut wifi_controller =
+            esp_radio::wifi::WifiController::new(peripherals.WIFI, Default::default())
+                .expect("Failed to initialize Wi-Fi controller");
+        let station = Config::Station(
+            StationConfig::default()
+                .with_ssid(env!("WIFI_SSID").try_into().unwrap())
+                .with_authentication(AuthenticationMethodConfig::Wpa2Personal(
+                    env!("WIFI_PASSWORD").try_into().unwrap(),
+                )),
+        );
+        let wifi_interface = esp_radio::wifi::Interface::station();
+        wifi_controller.set_config(&station).unwrap();
+        static RESOURCES: StaticCell<StackResources<4>> = StaticCell::new();
+        let rng = Rng::new();
+        let seed = ((rng.random() as u64) << 32) | rng.random() as u64;
+        let (stack, runner) = embassy_net::new(
+            wifi_interface,
+            embassy_net::Config::dhcpv4(Default::default()),
+            RESOURCES.init(StackResources::new()),
+            seed,
+        );
+        spawner.spawn(net_task(runner).unwrap());
 
-    // The network may only ever hand over a time as a bonus: it must never be able to keep
-    // the lamp awake. A failed association, a router that never answers DHCP or a resolver
-    // that says nothing would all stop the boot here, before the alarm is cleared — and the
-    // board would sit lit and awake with no way out. So the whole exchange gets a deadline,
-    // and every failure inside it just means "no fresh time".
-    let time_from_network = with_timeout(Duration::from_secs(30), async {
-        match wifi_controller.connect_async().await {
-            Ok(_) => info!("Wi-Fi connected"),
-            Err(e) => {
-                info!("Wi-Fi failed: {:?}", defmt::Debug2Format(&e));
-                return None;
+        // Even here the network may only hand over a time as a bonus: it must never be able
+        // to keep the lamp awake. A failed association, a router that never answers DHCP or
+        // a resolver that says nothing would all stop the boot before the alarm is cleared,
+        // and the board would sit lit and awake with no way out. So the whole exchange gets
+        // a deadline, and every failure inside it just means "no fresh time".
+        with_timeout(Duration::from_secs(30), async {
+            match wifi_controller.connect_async().await {
+                Ok(_) => info!("Wi-Fi connected"),
+                Err(e) => {
+                    info!("Wi-Fi failed: {:?}", defmt::Debug2Format(&e));
+                    return None;
+                }
             }
-        }
-        stack.wait_config_up().await;
-        info!("IP: {}", stack.config_v4()?.address);
-        let addrs = stack
-            .dns_query("time.google.com", embassy_net::dns::DnsQueryType::A)
-            .await
-            .ok()?;
-        let server = *addrs.first()?;
-        info!("NTP server: {}", server);
-        ntp_unix_seconds(stack, server).await
-    })
-    .await
-    .unwrap_or_else(|_| {
-        info!("network gave no time within 30 s");
+            stack.wait_config_up().await;
+            info!("IP: {}", stack.config_v4()?.address);
+            let addrs = stack
+                .dns_query("time.google.com", embassy_net::dns::DnsQueryType::A)
+                .await
+                .ok()?;
+            let server = *addrs.first()?;
+            info!("NTP server: {}", server);
+            ntp_unix_seconds(stack, server).await
+        })
+        .await
+        .unwrap_or_else(|_| {
+            info!("network gave no time within 30 s");
+            None
+        })
+    } else {
+        info!("clock kept its time; skipping the network");
         None
-    });
+    };
     // 1. Set the time, if the network hands one over. Everything after this has to run
     //    either way: the alarm that woke this boot still has to be cleared and the next one
     //    programmed from the time the clock already holds. Only setting the time needs the
