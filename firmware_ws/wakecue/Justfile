@@ -1,0 +1,19 @@
+# The lamp firmware. `just` builds and flashes it; `just monitor` reads the defmt
+# log while the chip is awake (the port disappears the moment it sleeps).
+
+bin := "target/riscv32imc-unknown-none-elf/release/wakecue"
+
+# Build and flash. Plain `just` does this.
+default: flash
+
+# Compile the firmware for the chip.
+build:
+    cargo build --release
+
+# Flash the release binary, then reset the chip with the watchdog.
+flash: build
+    espflash flash --chip esp32c3 --after watchdog-reset {{bin}}
+
+# Read the defmt log while the chip is awake.
+monitor:
+    espflash monitor --chip esp32c3 -L defmt --elf {{bin}}

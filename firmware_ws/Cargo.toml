@@ -1,3 +1,6 @@
 [workspace]
 members = ["core", "prayer-gen"]
+# The chip crate has its own target and toolchain; keeping it out stops a host
+# `cargo test` here from trying to build it for the PC.
+exclude = ["wakecue"]
 resolver = "2"
