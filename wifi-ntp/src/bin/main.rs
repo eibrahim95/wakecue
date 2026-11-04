@@ -293,12 +293,13 @@ async fn main(spawner: Spawner) -> ! {
 }
 
 /// Readout on the one LED, so a wake level that is holding the board awake can be
-/// named without a serial log. Count the blinks in each burst, then a one-second
-/// pause:
+/// named without a serial log. Each burst starts after a half-second of darkness, so
+/// the lit boot light cannot be mistaken for the first blink; count the blinks between
+/// the long gaps:
 ///
 /// - **1 blink** — both levels clear, so the sleep below would start (good).
-/// - **2 blinks** — pad line high while untouched: jumper on the wrong row, or the
-///   module's OUT is latched high.
+/// - **2 blinks** — pad line high: a finger is still on it, or the jumper is on the
+///   wrong row.
 /// - **3 blinks** — clock line low: Alarm 1 is due, so the SQW pin pulls low.
 /// - **4 blinks** — both of the above.
 async fn blink_state(led: &mut Output<'static>, clock_high: bool, pad_high: bool) {
@@ -312,13 +313,18 @@ async fn blink_state(led: &mut Output<'static>, clock_high: bool, pad_high: bool
         3
     };
 
+    // Divider: a clear dark gap, so the burst is counted from nothing rather than
+    // starting in the middle of the boot light.
+    led.set_high(); // active low: off
+    Timer::after(Duration::from_millis(500)).await;
+
     for _ in 0..blinks {
-        led.set_low(); // active low: on
+        led.set_low(); // on
         Timer::after(Duration::from_millis(200)).await;
         led.set_high(); // off
         Timer::after(Duration::from_millis(200)).await;
     }
-    Timer::after(Duration::from_millis(1000)).await;
+    Timer::after(Duration::from_millis(1200)).await;
 }
 
 #[embassy_executor::task]
