@@ -29,5 +29,5 @@ set-time:
     espflash flash --chip esp32c3 --after watchdog-reset target/riscv32imc-unknown-none-elf/release/set-time
 
 # Read the defmt log while the chip is awake. The port disappears when it sleeps.
-monitor:
-    espflash monitor --chip esp32c3 -L defmt --elf {{bin}}
+monitor name="wifi-ntp":
+    espflash monitor --chip esp32c3 -L defmt --elf target/riscv32imc-unknown-none-elf/release/{{name}}
