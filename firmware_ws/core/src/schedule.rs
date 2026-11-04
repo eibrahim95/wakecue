@@ -62,7 +62,28 @@ pub struct PrayerTable<'a> {
 /// Bytes per day in a prayer table.
 pub const TABLE_STRIDE: usize = 10;
 
-impl PrayerTable<'_> {
+/// First four bytes of a table file, from `prayer-gen`.
+pub const BLOB_MAGIC: &[u8; 4] = b"WCP1";
+/// Magic, then the first day as an i32, before the per-day times.
+pub const BLOB_HEADER: usize = 8;
+
+impl<'a> PrayerTable<'a> {
+    /// Read a table file from `prayer-gen`: magic, first day (i32 little-endian), then the days.
+    ///
+    /// The day range travels with the times, so regenerating over another range cannot leave the
+    /// firmware looking up the right prayer on the wrong day.
+    pub fn from_blob(blob: &'a [u8]) -> Option<PrayerTable<'a>> {
+        if blob.len() < BLOB_HEADER || !blob.starts_with(BLOB_MAGIC) {
+            return None;
+        }
+        let first_day = i32::from_le_bytes([blob[4], blob[5], blob[6], blob[7]]);
+        let data = &blob[BLOB_HEADER..];
+        if data.is_empty() || data.len() % TABLE_STRIDE != 0 {
+            return None;
+        }
+        Some(PrayerTable { first_day, data })
+    }
+
     pub fn utc_min(&self, prayer: Prayer, day: i32) -> Option<u16> {
         let i = usize::try_from(day.checked_sub(self.first_day)?).ok()?;
         let at = i * TABLE_STRIDE + prayer.index() * 2;
@@ -140,6 +161,41 @@ mod tests {
         assert_eq!(t.utc_min(Prayer::Maghrib, 104), Some(600));
         assert_eq!(t.utc_min(Prayer::Fajr, 105), None);
         assert_eq!(t.utc_min(Prayer::Fajr, 99), None);
+    }
+
+    #[test]
+    fn blob_header_carries_the_first_day() {
+        let mut blob = [0u8; BLOB_HEADER + 2 * TABLE_STRIDE];
+        blob[..4].copy_from_slice(BLOB_MAGIC);
+        blob[4..8].copy_from_slice(&100i32.to_le_bytes());
+        for day in 0..2 {
+            for p in 0..5 {
+                let at = BLOB_HEADER + day * TABLE_STRIDE + p * 2;
+                blob[at..at + 2].copy_from_slice(&(5 + 100 * p as u16).to_le_bytes());
+            }
+        }
+        let t = PrayerTable::from_blob(&blob).unwrap();
+        assert_eq!(t.first_day, 100);
+        assert_eq!(t.utc_min(Prayer::Fajr, 100), Some(5));
+        assert_eq!(t.utc_min(Prayer::Isha, 101), Some(405));
+        assert_eq!(t.utc_min(Prayer::Fajr, 102), None);
+    }
+
+    #[test]
+    fn a_blob_with_the_wrong_magic_or_length_is_refused() {
+        assert!(PrayerTable::from_blob(&[]).is_none());
+        // Header only, no days.
+        let mut bare = [0u8; BLOB_HEADER];
+        bare[..4].copy_from_slice(BLOB_MAGIC);
+        assert!(PrayerTable::from_blob(&bare).is_none());
+        // Right length, wrong magic.
+        let mut wrong = [0u8; BLOB_HEADER + TABLE_STRIDE];
+        wrong[..4].copy_from_slice(b"WCP0");
+        assert!(PrayerTable::from_blob(&wrong).is_none());
+        // One byte short of a whole day.
+        let mut short = [0u8; BLOB_HEADER + TABLE_STRIDE - 1];
+        short[..4].copy_from_slice(BLOB_MAGIC);
+        assert!(PrayerTable::from_blob(&short).is_none());
     }
 
     #[test]

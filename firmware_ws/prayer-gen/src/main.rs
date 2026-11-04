@@ -1,8 +1,11 @@
-//! Writes a table of the five daily prayers: per day five little-endian u16, minutes after 00:00 UTC,
-//! in the order Fajr, Dhuhr, Asr, Maghrib, Isha.
+//! Writes a table of the five daily prayers: a header, then per day five little-endian u16, minutes
+//! after 00:00 UTC, in the order Fajr, Dhuhr, Asr, Maghrib, Isha.
+//! The header is `WCP1` and the first day as an i32 (days since the Unix epoch), so the firmware reads
+//! the day range out of the file instead of repeating a number that could drift from it.
 //! usage: prayer-gen <lat> <lon> <first_year> <years> <out.bin> [fajr_angle=19.5] [isha_angle=17.5] [asr_shadow=1]
 //! The defaults are the Egyptian General Authority of Survey method with the standard (shadow = 1) Asr.
 use lamp_core::calendar::{civil_from_days, days_from_civil};
+use lamp_core::schedule::BLOB_MAGIC;
 use std::f64::consts::PI;
 
 fn rad(d: f64) -> f64 { d * PI / 180.0 }
@@ -94,7 +97,9 @@ fn main() {
 
     let first = days_from_civil(year, 1, 1);
     let last = days_from_civil(year + years, 1, 1);
-    let mut out = Vec::with_capacity(((last - first) * 10) as usize);
+    let mut out = Vec::with_capacity(((last - first) * 10 + 8) as usize);
+    out.extend_from_slice(BLOB_MAGIC);
+    out.extend_from_slice(&first.to_le_bytes());
     for day in first..last {
         for ev in events {
             let m = minutes(day, lat, lon, ev).unwrap_or_else(|| {
@@ -108,7 +113,10 @@ fn main() {
     std::fs::write(&a[5], &out).expect("write");
     let (ly, lm, ld) = civil_from_days(last - 1);
     println!(
-        "wrote {}: {} days ({year}-01-01 .. {ly}-{lm:02}-{ld:02}), {} bytes, first_day={first}",
-        a[5], last - first, out.len()
+        "wrote {}: {} days ({year}-01-01 .. {ly}-{lm:02}-{ld:02}), {} bytes (8-byte header + {} table), first_day={first}",
+        a[5],
+        last - first,
+        out.len(),
+        out.len() - 8
     );
 }
