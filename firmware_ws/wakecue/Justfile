@@ -19,8 +19,9 @@ flash: build
 buttons:
     cargo run --release --bin buttons
 
-# The lamp itself, flashed and watched. Its boot takes seconds and then it sleeps,
-# so the log ends there; the panel refreshing again is what shows the next wake.
+# The lamp itself, flashed and watched. It sleeps a couple of seconds after boot, which
+# takes the USB port with it, unless DEV_MODE at the top of src/bin/main.rs is true: then it
+# stays awake and turns into a console for the buttons, the pad and the clock.
 lamp:
     cargo run --release --bin wakecue
 

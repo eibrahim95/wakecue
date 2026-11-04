@@ -18,10 +18,16 @@ use esp_hal::spi::master::{Config as SpiConfig, Spi};
 use esp_hal::time::Rate;
 use esp_println as _;
 use lamp_core::calendar::{FORMAT_LEN, format_minutes, utc_to_egypt};
+use lamp_core::buttons::{self, KeyReader};
 use lamp_core::ds3231;
 use lamp_core::schedule::{self, Action, PrayerTable, Rule, When};
 use lamp_core::settings::{MAX_RULES, Settings};
 use wakecue::display::{PanelBus, clock_face};
+
+/// Bench switch. `true` runs the whole boot — clock, schedule, alarm, face — and then stays
+/// awake instead of sleeping, so the USB port stays up and the log keeps running. A sleeping
+/// board takes both away, which makes every boot a race. Set to `false` for the real lamp.
+const DEV_MODE: bool = true;
 
 /// The prayer table from `prayer-gen` (Cairo, ten years from 2026-01-01), built into the image.
 /// `just prayers` regenerates it; the day range travels inside the file.
@@ -107,10 +113,11 @@ fn main() -> ! {
         .expect("read time");
     let now_min = ds3231::parse_time_registers(t).div_euclid(60);
     info!(
-        "boot: osf {}, now {} UTC = {} Cairo",
+        "boot: osf {}, now {} UTC = {} Cairo, dev mode {}",
         osf,
         Stamp(now_min),
-        Stamp(utc_to_egypt(now_min))
+        Stamp(utc_to_egypt(now_min)),
+        DEV_MODE
     );
 
     let mut target = now_min + 1;
@@ -192,6 +199,58 @@ fn main() -> ! {
         &[ds3231::REG_CONTROL, ds3231::CONTROL_ALARM1_ONLY],
     )
     .expect("control");
+
+    // The bench switch: from here on the only thing left is the sleep, so with dev mode on the
+    // board stays awake and turns into a console — buttons, pad and the clock's own answer. It
+    // is not a separate build: everything above this line ran for real.
+    if DEV_MODE {
+        info!("dev mode: staying awake so the log stays attached");
+        bus.write(buttons::PCF8574_ADDR, &[buttons::RELEASE_ALL])
+            .expect("release expander pins");
+        let mut reader = KeyReader::default();
+        let mut port = [0u8; 1];
+        let mut last_port = buttons::RELEASE_ALL;
+        let mut last_touch = pad.is_high();
+        let mut ticks = 0u32;
+        loop {
+            bus.read(buttons::PCF8574_ADDR, &mut port)
+                .expect("read expander");
+            if port[0] != last_port {
+                last_port = port[0];
+                info!("port {}", port[0]);
+            }
+            if let Some(key) = reader.update(port[0]) {
+                info!(
+                    "pressed {}",
+                    match key {
+                        buttons::Key::Up => "Up",
+                        buttons::Key::Down => "Down",
+                        buttons::Key::Ok => "OK",
+                        buttons::Key::Back => "Back",
+                    }
+                );
+            }
+            let touch = pad.is_high();
+            if touch != last_touch {
+                last_touch = touch;
+                info!("pad {}", if touch { "touched" } else { "released" });
+            }
+            // Every five seconds, the clock's own answer, so a stopped or drifting clock shows
+            // up while sitting at the bench rather than at 4 a.m.
+            ticks += 1;
+            if ticks % 250 == 0 {
+                let mut t = [0u8; 7];
+                bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_TIME], &mut t)
+                    .expect("read time");
+                info!(
+                    "now {} UTC, sqw {}",
+                    Stamp(ds3231::parse_time_registers(t).div_euclid(60)),
+                    if sqw.is_high() { "high" } else { "low" }
+                );
+            }
+            delay.delay_millis(20);
+        }
+    }
 
     // A wake pin already sitting at its wake level ends the sleep at the moment it starts,
     // which would spin the chip through resets. Wait for both to clear first.
