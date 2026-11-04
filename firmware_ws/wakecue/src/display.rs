@@ -56,72 +56,119 @@ impl WriteOnlyDataCommand for PanelBus<'_> {
     }
 }
 
-/// Draw the standby face — Cairo time, the date, and what the lamp will do next — then put the
-/// panel back to sleep. A sleeping panel holds its image with no power, which is why the lamp
-/// can leave it alone; the cost is the two-second full refresh each boot.
+/// The panel, held open for as long as the lamp is awake so the face can be redrawn without
+/// reinitialising the driver. The first draw of a cold boot is a two-second full refresh; every
+/// later draw is a fast refresh, which flips only the pixels that changed and does not strobe.
 ///
-/// `next` is the event the boot armed and a short word for it, or `None` when the clock's time
-/// cannot be trusted, in which case the face says so instead of pointing at a time.
-#[allow(
-    clippy::large_stack_frames,
-    reason = "the frame buffer is the point of this function"
-)]
-pub fn clock_face(
-    bus: PanelBus<'static>,
-    busy: Input<'static>,
-    rst: Output<'static>,
-    now_min: i64,
-    next: Option<(i64, &str)>,
-) {
-    let mut driver = WeActStudio213BlackWhiteDriver::new(bus, busy, rst, Delay::new());
+/// A sleeping panel keeps its last image with no power, so the lamp wakes on each new minute and
+/// draws again; `show` is what makes the face right, `finish` is what lets the panel sleep.
+pub struct Face {
+    driver:
+        WeActStudio213BlackWhiteDriver<PanelBus<'static>, Input<'static>, Output<'static>, Delay>,
+    frame: Display213BlackWhite,
+    /// Whether the panel's RAM still matches the glass, so a fast refresh is safe.
+    fast: bool,
+    /// False when the panel never answered; drawing is then a no-op.
+    ready: bool,
+}
 
-    if let Err(e) = driver.init() {
-        defmt::info!("panel did not answer: {:?}", defmt::Debug2Format(&e));
-        return;
-    }
-
-    // The clock keeps UTC; the face shows the time on the wall.
-    let local = utc_to_egypt(now_min);
-    let mut time_buf = [0u8; HHMM_LEN];
-    let mut date_buf = [0u8; DATE_LEN];
-    let time = format_hhmm(local, &mut time_buf);
-    let date = format_date(local, &mut date_buf);
-
-    let mut frame = Display213BlackWhite::new();
-    frame.set_rotation(ROTATION);
-    frame.clear(Color::White);
-    let big = MonoTextStyle::new(&FONT_10X20, Color::Black);
-    let small = MonoTextStyle::new(&FONT_6X10, Color::Black);
-    let rule = PrimitiveStyle::with_stroke(Color::Black, 1);
-
-    let _ = Text::new(time, Point::new(14, 46), big).draw(&mut frame);
-    let _ = Line::new(Point::new(14, 60), Point::new(236, 60))
-        .into_styled(rule)
-        .draw(&mut frame);
-    let _ = Text::new(date, Point::new(14, 84), small).draw(&mut frame);
-
-    match next {
-        Some((at, label)) => {
-            let mut at_buf = [0u8; HHMM_LEN];
-            let at = format_hhmm(utc_to_egypt(at), &mut at_buf);
-            let _ = Text::new(label, Point::new(14, 108), small).draw(&mut frame);
-            // FONT_6X10 advances six pixels per character, so the time follows the label.
-            let after = 14 + label.len() as i32 * 6 + 6;
-            let _ = Text::new(at, Point::new(after, 108), small).draw(&mut frame);
-            defmt::info!("panel: face drawn, {} next {}", time, at);
-        }
-        None => {
-            let _ = Text::new("time not set", Point::new(14, 108), small).draw(&mut frame);
-            defmt::info!("panel: face drawn, {} with no trusted time", time);
+impl Face {
+    /// Take the panel over. `woken` says this boot came out of sleep rather than from power-on: a
+    /// wake needs only a hardware reset, because the panel kept both its picture and the RAM a
+    /// fast refresh compares against. A cold boot has nothing to keep and must initialise, and a
+    /// software reset is exactly what throws that RAM away — hence the two paths.
+    pub fn new(
+        bus: PanelBus<'static>,
+        busy: Input<'static>,
+        rst: Output<'static>,
+        woken: bool,
+    ) -> Self {
+        let mut driver = WeActStudio213BlackWhiteDriver::new(bus, busy, rst, Delay::new());
+        let fast = woken && driver.wake_up().is_ok();
+        let ready = if fast {
+            driver.assume_image_on_panel();
+            true
+        } else {
+            match driver.init() {
+                Ok(()) => true,
+                Err(e) => {
+                    defmt::info!("panel did not answer: {:?}", defmt::Debug2Format(&e));
+                    false
+                }
+            }
+        };
+        Self {
+            driver,
+            frame: {
+                let mut frame = Display213BlackWhite::new();
+                frame.set_rotation(ROTATION);
+                frame
+            },
+            fast: fast && ready,
+            ready,
         }
     }
 
-    match driver.full_update(&frame) {
-        Ok(()) => {}
-        Err(e) => defmt::info!("panel: refresh failed: {:?}", defmt::Debug2Format(&e)),
+    /// Draw the standby face — Cairo time, the date, and what the lamp will do next — and push it
+    /// to the glass. `next` is the event the boot armed and a short word for it, or `None` when
+    /// the clock's time cannot be trusted, in which case the face says so instead of pointing at
+    /// a time.
+    pub fn show(&mut self, now_min: i64, next: Option<(i64, &str)>) {
+        if !self.ready {
+            return;
+        }
+
+        // The clock keeps UTC; the face shows the time on the wall.
+        let local = utc_to_egypt(now_min);
+        let mut time_buf = [0u8; HHMM_LEN];
+        let mut date_buf = [0u8; DATE_LEN];
+        let time = format_hhmm(local, &mut time_buf);
+        let date = format_date(local, &mut date_buf);
+
+        let frame = &mut self.frame;
+        frame.clear(Color::White);
+        let big = MonoTextStyle::new(&FONT_10X20, Color::Black);
+        let small = MonoTextStyle::new(&FONT_6X10, Color::Black);
+        let rule = PrimitiveStyle::with_stroke(Color::Black, 1);
+
+        let _ = Text::new(time, Point::new(14, 46), big).draw(frame);
+        let _ = Line::new(Point::new(14, 60), Point::new(236, 60))
+            .into_styled(rule)
+            .draw(frame);
+        let _ = Text::new(date, Point::new(14, 84), small).draw(frame);
+
+        match next {
+            Some((at, label)) => {
+                let mut at_buf = [0u8; HHMM_LEN];
+                let at = format_hhmm(utc_to_egypt(at), &mut at_buf);
+                let _ = Text::new(label, Point::new(14, 108), small).draw(frame);
+                // FONT_6X10 advances six pixels per character, so the time follows the label.
+                let after = 14 + label.len() as i32 * 6 + 6;
+                let _ = Text::new(at, Point::new(after, 108), small).draw(frame);
+                defmt::info!("panel: face drawn, {} next {}", time, at);
+            }
+            None => {
+                let _ = Text::new("time not set", Point::new(14, 108), small).draw(frame);
+                defmt::info!("panel: face drawn, {} with no trusted time", time);
+            }
+        }
+
+        let refreshed = if self.fast {
+            self.driver.fast_update(&self.frame)
+        } else {
+            self.driver.full_update(&self.frame)
+        };
+        if let Err(e) = refreshed {
+            defmt::info!("panel: refresh failed: {:?}", defmt::Debug2Format(&e));
+        }
+        // The glass now holds this image, so the next draw can take the diff against it.
+        self.fast = true;
     }
 
-    if driver.sleep().is_err() {
-        defmt::info!("panel: could not be put to sleep");
+    /// Send the panel into its deep sleep, which keeps the last image with no power at all.
+    pub fn finish(mut self) {
+        if self.ready && self.driver.sleep().is_err() {
+            defmt::info!("panel: could not be put to sleep");
+        }
     }
 }

@@ -22,7 +22,7 @@ use lamp_core::buttons::{self, KeyReader};
 use lamp_core::ds3231;
 use lamp_core::schedule::{self, Action, PrayerTable, Rule, When};
 use lamp_core::settings::{MAX_RULES, Settings};
-use wakecue::display::{PanelBus, clock_face};
+use wakecue::display::{Face, PanelBus};
 
 /// Bench switch. `true` runs the whole boot — clock, schedule, alarm, face — and then stays
 /// awake instead of sleeping, so the USB port stays up and the log keeps running. A sleeping
@@ -112,9 +112,12 @@ fn main() -> ! {
     bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_TIME], &mut t)
         .expect("read time");
     let now_min = ds3231::parse_time_registers(t).div_euclid(60);
+    // A wake is a wake from sleep; a power-on reset leaves the hardware with no cause to report.
+    let woken = !esp_hal::rtc_cntl::wakeup_cause().is_empty();
     info!(
-        "boot: osf {}, now {} UTC = {} Cairo, dev mode {}",
+        "boot: osf {}, woken {}, now {} UTC = {} Cairo, dev mode {}",
         osf,
+        woken,
         Stamp(now_min),
         Stamp(utc_to_egypt(now_min)),
         DEV_MODE
@@ -165,16 +168,20 @@ fn main() -> ! {
                     next.utc_min - now_min
                 );
                 target = next.utc_min;
-                face_next = Some((next.utc_min, action_label(next.action)));
-            }
+                face_next = Some((next.utc_min, action_label(next.action)));            }
             None => info!("nothing scheduled; waking in a minute"),
         }
     }
 
+    // The face shows the minute, so the lamp cannot wait for the next event: the alarm is armed
+    // for whichever comes first, the event or the next minute. A minute tick costs a fast
+    // refresh with no strobe, and the event itself is still found by the check above.
+    target = target.min(now_min + 1);
+
     // The panel is the lamp's face, so it is drawn once the boot knows what it is looking at:
-    // a face that woke before the clock was read could only show yesterday's minute. Bring-up
-    // cost: a full refresh (~2 s) on every wake, until the pages and partial refresh exist.
-    clock_face(PanelBus::new(spi, dc), busy, rst, now_min, face_next);
+    // a face that woke before the clock was read could only show yesterday's minute.
+    let mut face = Face::new(PanelBus::new(spi, dc), busy, rst, woken);
+    face.show(now_min, face_next);
 
     // A1F is the alarm that woke this boot; while it is set the line stays low, which would
     // end the next sleep immediately. OSF is deliberately left alone: only a boot that
@@ -211,6 +218,7 @@ fn main() -> ! {
         let mut port = [0u8; 1];
         let mut last_port = buttons::RELEASE_ALL;
         let mut last_touch = pad.is_high();
+        let mut shown_min = now_min;
         let mut ticks = 0u32;
         loop {
             bus.read(buttons::PCF8574_ADDR, &mut port)
@@ -236,21 +244,31 @@ fn main() -> ! {
                 info!("pad {}", if touch { "touched" } else { "released" });
             }
             // Every five seconds, the clock's own answer, so a stopped or drifting clock shows
-            // up while sitting at the bench rather than at 4 a.m.
+            // up while sitting at the bench rather than at 4 a.m. A new minute also redraws the
+            // face, which is the fast-refresh path the lamp itself takes on every wake.
             ticks += 1;
             if ticks % 250 == 0 {
                 let mut t = [0u8; 7];
                 bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_TIME], &mut t)
                     .expect("read time");
+                let now = ds3231::parse_time_registers(t).div_euclid(60);
                 info!(
                     "now {} UTC, sqw {}",
-                    Stamp(ds3231::parse_time_registers(t).div_euclid(60)),
+                    Stamp(now),
                     if sqw.is_high() { "high" } else { "low" }
                 );
+                if now != shown_min {
+                    shown_min = now;
+                    face.show(now, face_next);
+                }
             }
             delay.delay_millis(20);
         }
     }
+
+    // The panel holds the last image with no power, so this is the last thing before the chip
+    // goes down.
+    face.finish();
 
     // A wake pin already sitting at its wake level ends the sleep at the moment it starts,
     // which would spin the chip through resets. Wait for both to clear first.
