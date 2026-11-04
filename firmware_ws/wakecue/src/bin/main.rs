@@ -11,13 +11,16 @@ use defmt::info;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::delay::Delay;
-use esp_hal::gpio::{Event, Input, InputConfig, Pull, WakeupConfig};
+use esp_hal::gpio::{Event, Input, InputConfig, Level, Output, OutputConfig, Pull, WakeupConfig};
 use esp_hal::i2c::master::{Config as I2cConfig, I2c};
 use esp_hal::rtc_cntl::sleep::{LowPower, RtcSleepConfig};
+use esp_hal::spi::master::{Config as SpiConfig, Spi};
+use esp_hal::time::Rate;
 use esp_println as _;
 use lamp_core::ds3231;
 use lamp_core::schedule::{self, Action, PrayerTable, Rule, When};
 use lamp_core::settings::{MAX_RULES, Settings};
+use wakecue::display::{PanelBus, first_frame};
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -37,6 +40,21 @@ fn main() -> ! {
 
     // The display owns GPIO0, 1, 2, 8 and 9 (reset, busy, data/command, data, clock), so
     // this firmware never drives the onboard LED: it shares GPIO8 with the SPI data line.
+    let spi = Spi::new(
+        peripherals.SPI2,
+        SpiConfig::default().with_frequency(Rate::from_mhz(4)),
+    )
+    .unwrap()
+    .with_sck(peripherals.GPIO9)
+    .with_mosi(peripherals.GPIO8);
+    let dc = Output::new(peripherals.GPIO2, Level::Low, OutputConfig::default());
+    let rst = Output::new(peripherals.GPIO0, Level::High, OutputConfig::default());
+    let busy = Input::new(peripherals.GPIO1, InputConfig::default());
+
+    // Bring-up only: every boot redraws the same frame, which costs a full refresh
+    // (~2 s). Once the pages exist, the panel is only redrawn when something changes.
+    first_frame(PanelBus::new(spi, dc), busy, rst);
+
     let mut sqw = Input::new(
         peripherals.GPIO3,
         InputConfig::default().with_pull(Pull::Up),
