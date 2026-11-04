@@ -1,3 +1,6 @@
+# Build credentials: never commit these
+.env
+
 # will have compiled files and executables
 debug/
 target/

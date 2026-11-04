@@ -1,4 +1,9 @@
 fn main() {
+    // The Wi-Fi credentials are baked in with env!(), and cargo does not watch env vars by
+    // itself: without these lines a build with different credentials is a no-op and the
+    // previous binary is flashed instead, as if the router had refused the join.
+    println!("cargo:rerun-if-env-changed=WIFI_SSID");
+    println!("cargo:rerun-if-env-changed=WIFI_PASSWORD");
     linker_be_nice();
     println!("cargo:rustc-link-arg=-Tdefmt.x");
     // make sure linkall.x is the last linker script (otherwise might cause problems with flip-link)
