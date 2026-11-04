@@ -131,25 +131,40 @@ async fn main(spawner: Spawner) -> ! {
         seed,
     );
     spawner.spawn(net_task(runner).unwrap());
-    match wifi_controller.connect_async().await {
-        Ok(_) => info!("Wi-Fi connected"),
-        Err(e) => info!("Wi-Fi failed: {:?}", defmt::Debug2Format(&e)),
-    }
-    // TODO: Spawn some tasks
-    stack.wait_config_up().await;
-    let cfg = stack.config_v4().unwrap();
-    info!("IP: {}", cfg.address);
 
-    let addrs = stack
-        .dns_query("time.google.com", embassy_net::dns::DnsQueryType::A)
-        .await
-        .expect("DNS lookup failed");
-    info!("NTP server: {}", addrs[0]);
+    // The network may only ever hand over a time as a bonus: it must never be able to keep
+    // the lamp awake. A failed association, a router that never answers DHCP or a resolver
+    // that says nothing would all stop the boot here, before the alarm is cleared — and the
+    // board would sit lit and awake with no way out. So the whole exchange gets a deadline,
+    // and every failure inside it just means "no fresh time".
+    let time_from_network = with_timeout(Duration::from_secs(30), async {
+        match wifi_controller.connect_async().await {
+            Ok(_) => info!("Wi-Fi connected"),
+            Err(e) => {
+                info!("Wi-Fi failed: {:?}", defmt::Debug2Format(&e));
+                return None;
+            }
+        }
+        stack.wait_config_up().await;
+        info!("IP: {}", stack.config_v4()?.address);
+        let addrs = stack
+            .dns_query("time.google.com", embassy_net::dns::DnsQueryType::A)
+            .await
+            .ok()?;
+        let server = *addrs.first()?;
+        info!("NTP server: {}", server);
+        ntp_unix_seconds(stack, server).await
+    })
+    .await
+    .unwrap_or_else(|_| {
+        info!("network gave no time within 30 s");
+        None
+    });
     // 1. Set the time, if the network hands one over. Everything after this has to run
     //    either way: the alarm that woke this boot still has to be cleared and the next one
     //    programmed from the time the clock already holds. Only setting the time needs the
     //    network. Leaving the alarm half-finished is what pins the chip awake for good.
-    let time_was_set = match ntp_unix_seconds(stack, addrs[0]).await {
+    let time_was_set = match time_from_network {
         Some(unix) => {
             info!("Unix time: {}", unix);
             print_utc(&unix);
