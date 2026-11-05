@@ -219,7 +219,10 @@ mod tests {
         m.press(Key::Ok); // to Save
         let o = m.press(Key::Ok);
         assert!(o.save);
-        assert_eq!(m.settings.alarms[0], UserAlarm { used: true, enabled: true, days: FRI_SAT, minute: 6 * 60 + 30 });
+        assert_eq!(
+            m.settings.alarms[0],
+            UserAlarm { used: true, enabled: true, days: FRI_SAT, minute: 6 * 60 + 30, ..UserAlarm::EMPTY }
+        );
         assert_eq!(m.screen, Screen::Alarms { cursor: 0 });
     }
 
@@ -254,7 +257,8 @@ mod tests {
     #[test]
     fn delete_clears_the_slot() {
         let mut m = menu();
-        m.settings.alarms[2] = UserAlarm { used: true, enabled: true, days: ALL_DAYS, minute: 300 };
+        m.settings.alarms[2] =
+            UserAlarm { used: true, enabled: true, days: ALL_DAYS, minute: 300, ..UserAlarm::EMPTY };
         m.screen = Screen::Alarms { cursor: 2 };
         m.press(Key::Ok); // edit
         m.press(Key::Ok);

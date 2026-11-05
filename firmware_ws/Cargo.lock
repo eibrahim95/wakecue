@@ -12,3 +12,10 @@ version = "0.1.0"
 dependencies = [
  "lamp-core",
 ]
+
+[[package]]
+name = "wakecue-settings"
+version = "0.1.0"
+dependencies = [
+ "lamp-core",
+]

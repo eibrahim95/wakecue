@@ -5,3 +5,8 @@ cad/*.stl
 target/
 .vscode/
 .DS_Store
+
+# what settings-tool moves between the lamp and the PC: these hold the Wi-Fi password
+firmware_ws/wakecue/settings.text
+firmware_ws/wakecue/settings-dump.bin
+firmware_ws/wakecue/settings-sector.bin

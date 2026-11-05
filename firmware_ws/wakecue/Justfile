@@ -39,3 +39,24 @@ monitor name="wakecue":
 # Run from `prayer-gen`'s own directory so the chip's target settings do not apply.
 prayers:
     cd ../prayer-gen && cargo run --release -- 30.0444 31.2357 2026 10 ../wakecue/prayers-cairo.bin
+
+# ---- settings from the PC, for a lamp whose menu is stuck or whose panel is dark ----
+# The block is written by the same encoder the firmware reads, so this cannot drift from it.
+# Each of these needs the board in download mode: hold BOOT, tap RST, release BOOT.
+
+# Read both settings sectors (8 KB) off the lamp into settings-dump.bin.
+settings-dump:
+    espflash read-flash --chip esp32c3 0x9000 0x2000 settings-dump.bin
+
+# Print what the lamp holds, in the same lines settings.text uses.
+settings-show: settings-dump
+    cd .. && cargo run -q -p wakecue-settings -- show --from wakecue/settings-dump.bin
+
+# Turn settings.text into a sector image. With no settings.text yet, write one to edit.
+# settings.text holds the Wi-Fi password: it is git-ignored on purpose.
+settings-build:
+    cd .. && cargo run -q -p wakecue-settings -- build --from wakecue/settings-dump.bin --text wakecue/settings.text --out wakecue/settings-sector.bin
+
+# Erase sector A, write the image there and start the lamp on the new block.
+settings-write:
+    espflash erase-region --chip esp32c3 0x9000 0x1000 && espflash write-bin --chip esp32c3 --after watchdog-reset 0x9000 settings-sector.bin
