@@ -280,6 +280,7 @@ fn main() -> ! {
             .expect("release expander pins");
         let mut reader = KeyReader::default();
         let mut port = [0u8; 1];
+        let mut last_touch = pad.is_high();
         let mut held_ms = 0u32;
         let mut idle_ms = 0u32;
         let mut lamp_on = false;
@@ -299,7 +300,13 @@ fn main() -> ! {
                 );
                 busy = true;
             }
-            if pad.is_high() {
+            // The pad is the thing that woke the lamp, so say what it is doing too.
+            let touch = pad.is_high();
+            if touch != last_touch {
+                last_touch = touch;
+                info!("pad {}", if touch { "touched" } else { "released" });
+            }
+            if touch {
                 held_ms += 20;
                 busy = true;
                 if held_ms == buttons::HOLD_MS {
