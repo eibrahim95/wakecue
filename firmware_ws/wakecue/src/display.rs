@@ -112,8 +112,9 @@ impl Face {
 
     /// Draw the standby face — Cairo time, the date, and the next prayer — and push it to the
     /// glass. `next` is the prayer and its time in UTC minutes, or `None` when the clock's time
-    /// cannot be trusted, in which case the face says so instead of naming a prayer.
-    pub fn show(&mut self, now_min: i64, next: Option<(i64, Prayer)>) {
+    /// cannot be trusted, in which case the face says so instead of naming a prayer. `sleeping`
+    /// puts the corner mark on, saying the lamp is about to go back down.
+    pub fn show(&mut self, now_min: i64, next: Option<(i64, Prayer)>, sleeping: bool) {
         if !self.ready {
             return;
         }
@@ -168,6 +169,13 @@ impl Face {
                 let _ = Text::new("time not set", Point::new(14, 108), small).draw(frame);
                 defmt::info!("panel: face drawn, {} with no trusted time", time);
             }
+        }
+
+        // The corner mark says the lamp is asleep. It is part of the frame, not a thing drawn
+        // and erased: every minute tick redraws the whole face anyway, so the tick keeps it, and
+        // only a wake by hand draws a face without it.
+        if sleeping {
+            let _ = Text::new("z z z", Point::new(196, 30), small).draw(frame);
         }
 
         let refreshed = if self.fast {

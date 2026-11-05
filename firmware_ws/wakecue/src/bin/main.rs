@@ -205,7 +205,9 @@ fn main() -> ! {
     // The panel is the lamp's face, so it is drawn once the boot knows what it is looking at:
     // a face that woke before the clock was read could only show yesterday's minute.
     let mut face = Face::new(PanelBus::new(spi, dc), busy, rst, woken);
-    face.show(now_min, face_next);
+    // Asleep unless a hand woke the lamp: the corner mark is what the lamp shows while it is
+    // down, and it comes off for as long as somebody is standing in front of it.
+    face.show(now_min, face_next, !by_hand);
 
     // The lamp redraws every minute, so the alarm is always the next minute; what is due is found
     // by the check above on whichever boot lands on it.
@@ -263,7 +265,7 @@ fn main() -> ! {
                 );
                 if now != shown_min {
                     shown_min = now;
-                    face.show(now, face_next);
+                    face.show(now, face_next, false);
                 }
             }
             delay.delay_millis(20);
@@ -323,11 +325,10 @@ fn main() -> ! {
         }
         info!("awake: idle, back to sleep");
 
-        // The window may have crossed a minute, and the alarm was armed before it.
+        // The window may have crossed a minute, and the alarm was armed before it. Redraw with
+        // the corner mark on, so the last thing on the glass is the lamp going back to sleep.
         let later = now_minutes(&mut bus);
-        if later != now_min {
-            face.show(later, face_next);
-        }
+        face.show(later, face_next, true);
         wakes_at = arm_next_minute(&mut bus, later);
     }
 
