@@ -26,6 +26,10 @@ buttons:
 lamp:
     cargo run --release --bin wakecue
 
+# Light the 16-pixel WS2812 ring on GPIO10: red, green, blue, then a 30 s ramp, on repeat.
+ring:
+    cargo run --release --bin ring
+
 # Read the defmt log while the chip is awake. Name the binary you flashed —
 # `just monitor buttons`, or nothing for the lamp itself.
 monitor name="wakecue":
