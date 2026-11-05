@@ -8,7 +8,7 @@ use display_interface::{DataFormat, DisplayError, WriteOnlyDataCommand};
 use embedded_graphics::mono_font::MonoTextStyle;
 use embedded_graphics::mono_font::ascii::{FONT_6X10, FONT_10X20};
 use embedded_graphics::prelude::*;
-use embedded_graphics::primitives::{Line, PrimitiveStyle};
+use embedded_graphics::primitives::{Line, PrimitiveStyle, Rectangle};
 use embedded_graphics::text::Text;
 use esp_hal::delay::Delay;
 use esp_hal::gpio::{Input, Output};
@@ -132,6 +132,15 @@ impl Face {
         let rule = PrimitiveStyle::with_stroke(Color::Black, 1);
 
         let _ = Text::new(time, Point::new(14, 46), big).draw(frame);
+        // Two borders, to measure what the glass will actually show. The drawing area is 250 by
+        // 128, but the panel is 122 rows visible behind a 128-row buffer: a border at the very
+        // edge and another six pixels in make it obvious which edge is the one that disappears.
+        let _ = Rectangle::new(Point::new(0, 0), Size::new(250, 128))
+            .into_styled(rule)
+            .draw(frame);
+        let _ = Rectangle::new(Point::new(6, 6), Size::new(238, 116))
+            .into_styled(rule)
+            .draw(frame);
         let _ = Line::new(Point::new(14, 60), Point::new(236, 60))
             .into_styled(rule)
             .draw(frame);
