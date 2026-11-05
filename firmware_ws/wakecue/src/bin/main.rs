@@ -20,7 +20,7 @@ use esp_println as _;
 use lamp_core::calendar::{FORMAT_LEN, format_minutes, utc_to_egypt};
 use lamp_core::buttons::{self, KeyReader};
 use lamp_core::ds3231;
-use lamp_core::schedule::{self, Action, PrayerTable, Rule, When};
+use lamp_core::schedule::{self, Action, Prayer, PrayerTable, Rule, When};
 use lamp_core::settings::{MAX_RULES, Settings};
 use wakecue::display::{Face, PanelBus};
 
@@ -45,17 +45,6 @@ impl Format for Stamp {
     fn format(&self, f: Formatter) {
         let mut buf = [0u8; FORMAT_LEN];
         defmt::write!(f, "{}", format_minutes(self.0, &mut buf));
-    }
-}
-
-/// A short word for a scheduled action, for the one line the face has room for.
-fn action_label(action: Action) -> &'static str {
-    match action {
-        Action::Sunrise { .. } => "sunrise",
-        Action::Play { .. } => "sound",
-        Action::LampOn => "lamp on",
-        Action::LampOff => "lamp off",
-        Action::Alarm => "alarm",
     }
 }
 
@@ -124,9 +113,9 @@ fn main() -> ! {
     );
 
     let mut target = now_min + 1;
-    // What the face says the lamp does next, decided below; `None` means the clock cannot be
-    // trusted, so the face says that instead of pointing at a time.
-    let mut face_next: Option<(i64, &str)> = None;
+    // The prayer the face names, decided below; `None` means the clock cannot be trusted, so the
+    // face says that instead of naming one.
+    let mut face_next: Option<(i64, Prayer)> = None;
     if osf {
         // There is no Wi-Fi and no settings page in this crate yet, so the time cannot be
         // fetched. Keep waking once a minute rather than parking the lamp on a clock it
@@ -142,6 +131,9 @@ fn main() -> ! {
         }; MAX_RULES];
         let count = settings.rules(&mut rules);
         let prayers = PrayerTable::from_blob(PRAYERS).expect("prayer table");
+        // The face names the next prayer of the five, whatever the switches say: it is a clock,
+        // and the schedule below only answers "what will the lamp act on".
+        face_next = schedule::next_prayer(now_min, &prayers);
 
         // Anything whose time has arrived is this boot's job. The alarm fired, so the event
         // is at or before now; after running it, look again from the following minute.
@@ -167,8 +159,7 @@ fn main() -> ! {
                     Stamp(utc_to_egypt(next.utc_min)),
                     next.utc_min - now_min
                 );
-                target = next.utc_min;
-                face_next = Some((next.utc_min, action_label(next.action)));            }
+                target = next.utc_min;            }
             None => info!("nothing scheduled; waking in a minute"),
         }
     }

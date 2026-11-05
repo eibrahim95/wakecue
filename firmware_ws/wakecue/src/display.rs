@@ -14,6 +14,7 @@ use esp_hal::delay::Delay;
 use esp_hal::gpio::{Input, Output};
 use esp_hal::spi::master::Spi;
 use lamp_core::calendar::{DATE_LEN, HHMM_LEN, format_date, format_hhmm, utc_to_egypt};
+use lamp_core::schedule::Prayer;
 use weact_studio_epd::graphics::{Display213BlackWhite, DisplayRotation};
 use weact_studio_epd::{Color, WeActStudio213BlackWhiteDriver};
 
@@ -109,11 +110,10 @@ impl Face {
         }
     }
 
-    /// Draw the standby face — Cairo time, the date, and what the lamp will do next — and push it
-    /// to the glass. `next` is the event the boot armed and a short word for it, or `None` when
-    /// the clock's time cannot be trusted, in which case the face says so instead of pointing at
-    /// a time.
-    pub fn show(&mut self, now_min: i64, next: Option<(i64, &str)>) {
+    /// Draw the standby face — Cairo time, the date, and the next prayer — and push it to the
+    /// glass. `next` is the prayer and its time in UTC minutes, or `None` when the clock's time
+    /// cannot be trusted, in which case the face says so instead of naming a prayer.
+    pub fn show(&mut self, now_min: i64, next: Option<(i64, Prayer)>) {
         if !self.ready {
             return;
         }
@@ -138,14 +138,22 @@ impl Face {
         let _ = Text::new(date, Point::new(14, 84), small).draw(frame);
 
         match next {
-            Some((at, label)) => {
+            Some((at, prayer)) => {
+                let local_at = utc_to_egypt(at);
                 let mut at_buf = [0u8; HHMM_LEN];
-                let at = format_hhmm(utc_to_egypt(at), &mut at_buf);
-                let _ = Text::new(label, Point::new(14, 108), small).draw(frame);
-                // FONT_6X10 advances six pixels per character, so the time follows the label.
-                let after = 14 + label.len() as i32 * 6 + 6;
-                let _ = Text::new(at, Point::new(after, 108), small).draw(frame);
-                defmt::info!("panel: face drawn, {} next {}", time, at);
+                let at = format_hhmm(local_at, &mut at_buf);
+                let name = prayer.name();
+                // A prayer shown at 10:43 reading "Fajr 04:44" has to say it is tomorrow's.
+                let mut x = 14;
+                if local_at.div_euclid(1440) != local.div_euclid(1440) {
+                    let _ = Text::new("tomorrow", Point::new(x, 108), small).draw(frame);
+                    x += 8 * 6 + 6;
+                }
+                // FONT_6X10 advances six pixels per character, so each word follows the last.
+                let _ = Text::new(name, Point::new(x, 108), small).draw(frame);
+                x += name.len() as i32 * 6 + 6;
+                let _ = Text::new(at, Point::new(x, 108), small).draw(frame);
+                defmt::info!("panel: face drawn, {} next {} {}", time, name, at);
             }
             None => {
                 let _ = Text::new("time not set", Point::new(14, 108), small).draw(frame);

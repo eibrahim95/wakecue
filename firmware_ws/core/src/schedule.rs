@@ -19,6 +19,17 @@ impl Prayer {
     pub fn index(self) -> usize {
         self as usize
     }
+
+    /// The name as it reads on the panel and in the settings page.
+    pub fn name(self) -> &'static str {
+        match self {
+            Prayer::Fajr => "Fajr",
+            Prayer::Dhuhr => "Dhuhr",
+            Prayer::Asr => "Asr",
+            Prayer::Maghrib => "Maghrib",
+            Prayer::Isha => "Isha",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -103,6 +114,35 @@ fn target_min(rule: &Rule, day: i32, prayers: &PrayerTable) -> Option<i64> {
             Some(base + m as i64 - off)
         }
     }
+}
+
+/// The next of the five prayers at or after `from_min`, with its time in UTC minutes.
+///
+/// Unlike [`next_event`] this ignores the rules and the switches: it answers "which prayer comes
+/// next", which is what the face shows. A prayer is reported at its own time, not at the minute
+/// its ramp starts.
+pub fn next_prayer(from_min: i64, prayers: &PrayerTable) -> Option<(i64, Prayer)> {
+    let first = from_min.div_euclid(1440) as i32;
+    // Five prayers a day are well inside two days of lookahead, but a table that ends gets the
+    // same answer either way: none.
+    for day in first..first + 2 {
+        let base = day as i64 * 1440;
+        let mut best: Option<(i64, Prayer)> = None;
+        for p in Prayer::ALL {
+            let Some(m) = prayers.utc_min(p, day) else { continue };
+            let at = base + m as i64;
+            if at < from_min {
+                continue;
+            }
+            if best.is_none_or(|(b, _)| at < b) {
+                best = Some((at, p));
+            }
+        }
+        if best.is_some() {
+            return best;
+        }
+    }
+    None
 }
 
 /// The earliest event whose start is at or after `from_min`. Looks three days ahead.
@@ -196,6 +236,42 @@ mod tests {
         let mut short = [0u8; BLOB_HEADER + TABLE_STRIDE - 1];
         short[..4].copy_from_slice(BLOB_MAGIC);
         assert!(PrayerTable::from_blob(&short).is_none());
+    }
+
+    #[test]
+    fn prayer_names_match_the_table_order() {
+        assert_eq!(Prayer::ALL.map(|p| p.name()), ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]);
+    }
+
+    #[test]
+    fn next_prayer_is_the_clock_face_answer() {
+        // `table` takes one Fajr per day and adds an hour per prayer after it, so day 100 is
+        // Fajr 00:05, Dhuhr 01:45, Asr 03:25, Maghrib 05:05, Isha 06:45 (UTC minutes).
+        let mut b = [0u8; 50];
+        let t = table(&mut b, 100, [5, 6, 7, 8, 300]);
+        let base = 100 * 1440;
+        assert_eq!(next_prayer(base, &t), Some((base + 5, Prayer::Fajr)));
+        assert_eq!(next_prayer(base + 6, &t), Some((base + 105, Prayer::Dhuhr)));
+        assert_eq!(next_prayer(base + 300, &t), Some((base + 305, Prayer::Maghrib)));
+        assert_eq!(next_prayer(base + 306, &t), Some((base + 405, Prayer::Isha)));
+        // After Isha the answer is tomorrow's Fajr, which is what the face has to say out loud.
+        assert_eq!(next_prayer(base + 406, &t), Some((base + 1440 + 6, Prayer::Fajr)));
+    }
+
+    #[test]
+    fn next_prayer_skips_the_day_that_has_gone() {
+        let mut b = [0u8; 50];
+        let t = table(&mut b, 100, [5, 6, 7, 8, 300]);
+        // One minute before midnight on day 100, the next prayer is day 101's Fajr at 00:06.
+        assert_eq!(next_prayer(101 * 1440 - 1, &t), Some((101 * 1440 + 6, Prayer::Fajr)));
+        // The table covers days 100 to 104; past its last day no prayer can be named.
+        assert_eq!(next_prayer(105 * 1440, &t), None);
+    }
+
+    #[test]
+    fn next_prayer_without_a_table_is_none() {
+        let empty = PrayerTable { first_day: 0, data: &[] };
+        assert_eq!(next_prayer(20454 * 1440, &empty), None);
     }
 
     #[test]
