@@ -48,6 +48,43 @@ impl Format for Stamp {
     }
 }
 
+/// The clock's minute count, read fresh. Every boot and every awake window asks it at least once.
+fn now_minutes(bus: &mut I2c<'static, esp_hal::Blocking>) -> i64 {
+    let mut t = [0u8; 7];
+    bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_TIME], &mut t)
+        .expect("read time");
+    ds3231::parse_time_registers(t).div_euclid(60)
+}
+
+/// Clear the flag this boot owns and arm Alarm 1 for the next minute, which it returns.
+///
+/// The lamp redraws its clock every minute, so the next minute is always the next thing to do;
+/// an event that is due is found on the boot that lands on it. Clearing `A1F` first matters: while
+/// it is set the line stays low, and a wake pin sitting at its wake level ends a sleep as it starts.
+fn arm_next_minute(bus: &mut I2c<'static, esp_hal::Blocking>, now_min: i64) -> i64 {
+    let mut st = [0u8; 1];
+    bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_STATUS], &mut st)
+        .expect("status");
+    bus.write(
+        ds3231::I2C_ADDR,
+        &[ds3231::REG_STATUS, st[0] & !ds3231::STATUS_A1F],
+    )
+    .expect("clear a1f");
+
+    let a = ds3231::alarm1_registers(now_min + 1);
+    bus.write(
+        ds3231::I2C_ADDR,
+        &[ds3231::REG_ALARM1, a[0], a[1], a[2], a[3]],
+    )
+    .expect("alarm1");
+    bus.write(
+        ds3231::I2C_ADDR,
+        &[ds3231::REG_CONTROL, ds3231::CONTROL_ALARM1_ONLY],
+    )
+    .expect("control");
+    now_min + 1
+}
+
 /// A wake is a reset, so this function is the whole program: read the clock, run what is
 /// due, arm the next event, sleep. Nothing is remembered in RAM because nothing survives.
 #[allow(
@@ -96,23 +133,24 @@ fn main() -> ! {
     bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_STATUS], &mut status)
         .expect("read status");
     let osf = status[0] & ds3231::STATUS_OSF != 0;
+    // A1F separates the two things that can wake the lamp: the clock leaves it set, a finger on
+    // the pad leaves it clear.
+    let a1f = status[0] & ds3231::STATUS_A1F != 0;
 
-    let mut t = [0u8; 7];
-    bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_TIME], &mut t)
-        .expect("read time");
-    let now_min = ds3231::parse_time_registers(t).div_euclid(60);
+    let now_min = now_minutes(&mut bus);
     // A wake is a wake from sleep; a power-on reset leaves the hardware with no cause to report.
     let woken = !esp_hal::rtc_cntl::wakeup_cause().is_empty();
+    let touched = woken && !a1f;
     info!(
-        "boot: osf {}, woken {}, now {} UTC = {} Cairo, dev mode {}",
+        "boot: osf {}, woken {}, touched {}, now {} UTC = {} Cairo, dev mode {}",
         osf,
         woken,
+        touched,
         Stamp(now_min),
         Stamp(utc_to_egypt(now_min)),
         DEV_MODE
     );
 
-    let mut target = now_min + 1;
     // The prayer the face names, decided below; `None` means the clock cannot be trusted, so the
     // face says that instead of naming one.
     let mut face_next: Option<(i64, Prayer)> = None;
@@ -158,45 +196,19 @@ fn main() -> ! {
                     Stamp(next.utc_min),
                     Stamp(utc_to_egypt(next.utc_min)),
                     next.utc_min - now_min
-                );
-                target = next.utc_min;            }
+                );            }
             None => info!("nothing scheduled; waking in a minute"),
         }
     }
-
-    // The face shows the minute, so the lamp cannot wait for the next event: the alarm is armed
-    // for whichever comes first, the event or the next minute. A minute tick costs a fast
-    // refresh with no strobe, and the event itself is still found by the check above.
-    target = target.min(now_min + 1);
 
     // The panel is the lamp's face, so it is drawn once the boot knows what it is looking at:
     // a face that woke before the clock was read could only show yesterday's minute.
     let mut face = Face::new(PanelBus::new(spi, dc), busy, rst, woken);
     face.show(now_min, face_next);
 
-    // A1F is the alarm that woke this boot; while it is set the line stays low, which would
-    // end the next sleep immediately. OSF is deliberately left alone: only a boot that
-    // wrote a fresh time is allowed to clear it.
-    let mut st = [0u8; 1];
-    bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_STATUS], &mut st)
-        .expect("status");
-    bus.write(
-        ds3231::I2C_ADDR,
-        &[ds3231::REG_STATUS, st[0] & !ds3231::STATUS_A1F],
-    )
-    .expect("clear a1f");
-
-    let a = ds3231::alarm1_registers(target);
-    bus.write(
-        ds3231::I2C_ADDR,
-        &[ds3231::REG_ALARM1, a[0], a[1], a[2], a[3]],
-    )
-    .expect("alarm1");
-    bus.write(
-        ds3231::I2C_ADDR,
-        &[ds3231::REG_CONTROL, ds3231::CONTROL_ALARM1_ONLY],
-    )
-    .expect("control");
+    // The lamp redraws every minute, so the alarm is always the next minute; what is due is found
+    // by the check above on whichever boot lands on it.
+    let mut wakes_at = arm_next_minute(&mut bus, now_min);
 
     // The bench switch: from here on the only thing left is the sleep, so with dev mode on the
     // board stays awake and turns into a console — buttons, pad and the clock's own answer. It
@@ -257,6 +269,59 @@ fn main() -> ! {
         }
     }
 
+    // A touch is the only way a person announces themselves, and it is worth staying awake for:
+    // the face is readable, the buttons work, and a quiet lamp goes back to sleep by itself. Any
+    // press or touch restarts the clock, so a menu being used never times out mid-press. A press
+    // held for a second is a different thing from a tap, and will toggle the lamp once there is a
+    // ring to toggle.
+    if touched {
+        info!("tap: awake for {} s", buttons::IDLE_SLEEP_MS / 1000);
+        bus.write(buttons::PCF8574_ADDR, &[buttons::RELEASE_ALL])
+            .expect("release expander pins");
+        let mut reader = KeyReader::default();
+        let mut port = [0u8; 1];
+        let mut held_ms = 0u32;
+        let mut idle_ms = 0u32;
+        let mut lamp_on = false;
+        while idle_ms < buttons::IDLE_SLEEP_MS {
+            let mut busy = false;
+            bus.read(buttons::PCF8574_ADDR, &mut port)
+                .expect("read expander");
+            if let Some(key) = reader.update(port[0]) {
+                info!(
+                    "pressed {}",
+                    match key {
+                        buttons::Key::Up => "Up",
+                        buttons::Key::Down => "Down",
+                        buttons::Key::Ok => "OK",
+                        buttons::Key::Back => "Back",
+                    }
+                );
+                busy = true;
+            }
+            if pad.is_high() {
+                held_ms += 20;
+                busy = true;
+                if held_ms == buttons::HOLD_MS {
+                    lamp_on = !lamp_on;
+                    info!("hold: lamp {}", if lamp_on { "on" } else { "off" });
+                }
+            } else {
+                held_ms = 0;
+            }
+            idle_ms = if busy { 0 } else { idle_ms + 20 };
+            delay.delay_millis(20);
+        }
+        info!("tap: idle, back to sleep");
+
+        // The window may have crossed a minute, and the alarm was armed before it.
+        let later = now_minutes(&mut bus);
+        if later != now_min {
+            face.show(later, face_next);
+        }
+        wakes_at = arm_next_minute(&mut bus, later);
+    }
+
     // The panel holds the last image with no power, so this is the last thing before the chip
     // goes down.
     face.finish();
@@ -283,8 +348,8 @@ fn main() -> ! {
 
     info!(
         "sleeping until {} UTC = {} Cairo",
-        Stamp(target),
-        Stamp(utc_to_egypt(target))
+        Stamp(wakes_at),
+        Stamp(utc_to_egypt(wakes_at))
     );
     let mut lp = LowPower::new(peripherals.LPWR);
     lp.sleep_deep(RtcSleepConfig::deep());
