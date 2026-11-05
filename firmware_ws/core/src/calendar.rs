@@ -102,6 +102,37 @@ pub fn format_hhmm(min: i64, buf: &mut [u8; HHMM_LEN]) -> &str {
     core::str::from_utf8(buf).unwrap_or("")
 }
 
+/// Width of the longest text `format_hhmm12` writes, `12:45`.
+pub const HHMM12_LEN: usize = 5;
+
+/// Write `min` as a 12-hour time, `4:05` or `12:45`, with no leading zero on the hour; no zone is
+/// applied, and [`meridiem`] says which half of the day it is.
+pub fn format_hhmm12(min: i64, buf: &mut [u8; HHMM12_LEN]) -> &str {
+    let m = min.rem_euclid(1440) as u32;
+    let hour = match (m / 60) % 12 {
+        0 => 12,
+        h => h,
+    };
+    let mut n = 0;
+    let w = if hour < 10 { 1 } else { 2 };
+    put(buf, n, w, hour);
+    n += w;
+    buf[n] = b':';
+    n += 1;
+    put(buf, n, 2, m % 60);
+    n += 2;
+    core::str::from_utf8(&buf[..n]).unwrap_or("")
+}
+
+/// `AM` or `PM` for a minute count. Noon is PM and midnight is AM, as a clock reads.
+pub fn meridiem(min: i64) -> &'static str {
+    if (min.rem_euclid(1440) / 60) < 12 {
+        "AM"
+    } else {
+        "PM"
+    }
+}
+
 const WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -216,6 +247,23 @@ mod tests {
         let local = utc_to_egypt(utc(2026, 11, 4, 23, 16));
         assert_eq!(format_date(local, &mut date), "Thu 5 Nov 2026");
         assert_eq!(format_hhmm(local, &mut hhmm), "01:16");
+    }
+
+    #[test]
+    fn twelve_hour_clock_reads_the_way_a_clock_does() {
+        let mut b = [0u8; HHMM12_LEN];
+        // Midnight and noon are both "12", and the hour loses its leading zero.
+        assert_eq!(format_hhmm12(utc(2026, 11, 5, 0, 0), &mut b), "12:00");
+        assert_eq!(meridiem(utc(2026, 11, 5, 0, 0)), "AM");
+        assert_eq!(format_hhmm12(utc(2026, 11, 5, 0, 59), &mut b), "12:59");
+        assert_eq!(format_hhmm12(utc(2026, 11, 5, 12, 0), &mut b), "12:00");
+        assert_eq!(meridiem(utc(2026, 11, 5, 12, 0)), "PM");
+        assert_eq!(format_hhmm12(utc(2026, 11, 5, 9, 5), &mut b), "9:05");
+        assert_eq!(meridiem(utc(2026, 11, 5, 9, 5)), "AM");
+        assert_eq!(format_hhmm12(utc(2026, 11, 5, 23, 59), &mut b), "11:59");
+        assert_eq!(meridiem(utc(2026, 11, 5, 23, 59)), "PM");
+        assert_eq!(format_hhmm12(utc(2026, 11, 5, 13, 7), &mut b), "1:07");
+        assert_eq!(meridiem(utc(2026, 11, 5, 13, 7)), "PM");
     }
 
     #[test]

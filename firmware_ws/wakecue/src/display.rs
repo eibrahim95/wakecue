@@ -13,7 +13,9 @@ use embedded_graphics::text::Text;
 use esp_hal::delay::Delay;
 use esp_hal::gpio::{Input, Output};
 use esp_hal::spi::master::Spi;
-use lamp_core::calendar::{DATE_LEN, HHMM_LEN, format_date, format_hhmm, utc_to_egypt};
+use lamp_core::calendar::{
+    DATE_LEN, HHMM12_LEN, format_date, format_hhmm12, meridiem, utc_to_egypt,
+};
 use lamp_core::schedule::Prayer;
 use weact_studio_epd::graphics::{Display213BlackWhite, DisplayRotation};
 use weact_studio_epd::{Color, WeActStudio213BlackWhiteDriver};
@@ -121,9 +123,9 @@ impl Face {
 
         // The clock keeps UTC; the face shows the time on the wall.
         let local = utc_to_egypt(now_min);
-        let mut time_buf = [0u8; HHMM_LEN];
+        let mut time_buf = [0u8; HHMM12_LEN];
         let mut date_buf = [0u8; DATE_LEN];
-        let time = format_hhmm(local, &mut time_buf);
+        let time = format_hhmm12(local, &mut time_buf);
         let date = format_date(local, &mut date_buf);
 
         let frame = &mut self.frame;
@@ -133,6 +135,10 @@ impl Face {
         let rule = PrimitiveStyle::with_stroke(Color::Black, 1);
 
         let _ = Text::new(time, Point::new(14, 46), big).draw(frame);
+        // AM/PM rides beside the big time in the small font, both bottom-aligned on y = 46; FONT_10X20
+        // advances ten pixels a character, so the two never touch.
+        let ampm_x = 14 + time.len() as i32 * 10 + 6;
+        let _ = Text::new(meridiem(local), Point::new(ampm_x, 46), small).draw(frame);
         // Two borders, to measure what the glass will actually show. The drawing area is 250 by
         // 128, but the panel is 122 rows visible behind a 128-row buffer: a border at the very
         // edge and another six pixels in make it obvious which edge is the one that disappears.
@@ -150,10 +156,10 @@ impl Face {
         match next {
             Some((at, prayer)) => {
                 let local_at = utc_to_egypt(at);
-                let mut at_buf = [0u8; HHMM_LEN];
-                let at = format_hhmm(local_at, &mut at_buf);
+                let mut at_buf = [0u8; HHMM12_LEN];
+                let at = format_hhmm12(local_at, &mut at_buf);
                 let name = prayer.name();
-                // A prayer shown at 10:43 reading "Fajr 04:44" has to say it is tomorrow's.
+                // A prayer shown at 10:43 reading "Fajr 4:44" has to say it is tomorrow's.
                 let mut x = 14;
                 if local_at.div_euclid(1440) != local.div_euclid(1440) {
                     let _ = Text::new("tomorrow", Point::new(x, 108), small).draw(frame);
@@ -163,6 +169,8 @@ impl Face {
                 let _ = Text::new(name, Point::new(x, 108), small).draw(frame);
                 x += name.len() as i32 * 6 + 6;
                 let _ = Text::new(at, Point::new(x, 108), small).draw(frame);
+                x += at.len() as i32 * 6 + 6;
+                let _ = Text::new(meridiem(local_at), Point::new(x, 108), small).draw(frame);
                 defmt::info!("panel: face drawn, {} next {} {}", time, name, at);
             }
             None => {
