@@ -133,19 +133,20 @@ fn main() -> ! {
     bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_STATUS], &mut status)
         .expect("read status");
     let osf = status[0] & ds3231::STATUS_OSF != 0;
-    // A1F separates the two things that can wake the lamp: the clock leaves it set, a finger on
-    // the pad leaves it clear.
+    // A1F separates the two things that can wake the lamp: the clock leaves it set, a hand on the
+    // pad or on any button leaves it clear. Nothing needs to know which of the two, because both
+    // mean the same thing — someone is standing here.
     let a1f = status[0] & ds3231::STATUS_A1F != 0;
 
     let now_min = now_minutes(&mut bus);
     // A wake is a wake from sleep; a power-on reset leaves the hardware with no cause to report.
     let woken = !esp_hal::rtc_cntl::wakeup_cause().is_empty();
-    let touched = woken && !a1f;
+    let by_hand = woken && !a1f;
     info!(
-        "boot: osf {}, woken {}, touched {}, now {} UTC = {} Cairo, dev mode {}",
+        "boot: osf {}, woken {}, by hand {}, now {} UTC = {} Cairo, dev mode {}",
         osf,
         woken,
-        touched,
+        by_hand,
         Stamp(now_min),
         Stamp(utc_to_egypt(now_min)),
         DEV_MODE
@@ -269,13 +270,14 @@ fn main() -> ! {
         }
     }
 
-    // A touch is the only way a person announces themselves, and it is worth staying awake for:
+    // A hand is the only way a person announces themselves — the pad, or any of the four buttons
+    // sharing the clock's wake line through the expander's INT. It is worth staying awake for:
     // the face is readable, the buttons work, and a quiet lamp goes back to sleep by itself. Any
     // press or touch restarts the clock, so a menu being used never times out mid-press. A press
     // held for a second is a different thing from a tap, and will toggle the lamp once there is a
     // ring to toggle.
-    if touched {
-        info!("tap: awake for {} s", buttons::IDLE_SLEEP_MS / 1000);
+    if by_hand {
+        info!("awake: a hand woke the lamp, staying {} s", buttons::IDLE_SLEEP_MS / 1000);
         bus.write(buttons::PCF8574_ADDR, &[buttons::RELEASE_ALL])
             .expect("release expander pins");
         let mut reader = KeyReader::default();
@@ -319,7 +321,7 @@ fn main() -> ! {
             idle_ms = if busy { 0 } else { idle_ms + 20 };
             delay.delay_millis(20);
         }
-        info!("tap: idle, back to sleep");
+        info!("awake: idle, back to sleep");
 
         // The window may have crossed a minute, and the alarm was armed before it.
         let later = now_minutes(&mut bus);
@@ -334,13 +336,17 @@ fn main() -> ! {
     face.finish();
 
     // A wake pin already sitting at its wake level ends the sleep at the moment it starts,
-    // which would spin the chip through resets. Wait for both to clear first.
+    // which would spin the chip through resets. Wait for both to clear first. GPIO3 is shared by
+    // the clock's SQW and the expander's INT, and INT stays latched low after a button press
+    // until the port is read — so read it, or a press during this wait would hold the lamp awake.
     let mut waited = false;
     while !sqw.is_high() || pad.is_high() {
         if !waited {
-            info!("waiting for the wake levels to clear");
+            info!("waiting for GPIO3 and GPIO4 to sit clear");
             waited = true;
         }
+        let mut port = [0u8; 1];
+        let _ = bus.read(buttons::PCF8574_ADDR, &mut port);
         delay.delay_millis(200);
     }
 
