@@ -21,13 +21,14 @@ use lamp_core::calendar::{FORMAT_LEN, format_minutes, utc_to_egypt};
 use lamp_core::buttons::{self, KeyReader};
 use lamp_core::ds3231;
 use lamp_core::schedule::{self, Action, Prayer, PrayerTable, Rule, When};
+use lamp_core::menu::{Menu, Screen};
 use lamp_core::settings::{MAX_RULES, Settings};
 use wakecue::display::{Face, PanelBus};
 
 /// Bench switch. `true` runs the whole boot — clock, schedule, alarm, face — and then stays
 /// awake instead of sleeping, so the USB port stays up and the log keeps running. A sleeping
 /// board takes both away, which makes every boot a race. Set to `false` for the real lamp.
-const DEV_MODE: bool = true;
+const DEV_MODE: bool = false;
 
 /// The prayer table from `prayer-gen` (Cairo, ten years from 2026-01-01), built into the image.
 /// `just prayers` regenerates it; the day range travels inside the file.
@@ -207,7 +208,7 @@ fn main() -> ! {
     let mut face = Face::new(PanelBus::new(spi, dc), busy, rst, woken);
     // Asleep unless a hand woke the lamp: the corner mark is what the lamp shows while it is
     // down, and it comes off for as long as somebody is standing in front of it.
-    face.show(now_min, face_next, !by_hand);
+    face.show_clock(now_min, face_next, !by_hand);
 
     // The lamp redraws every minute, so the alarm is always the next minute; what is due is found
     // by the check above on whichever boot lands on it.
@@ -265,7 +266,7 @@ fn main() -> ! {
                 );
                 if now != shown_min {
                     shown_min = now;
-                    face.show(now, face_next, false);
+                    face.show_clock(now, face_next, false);
                 }
             }
             delay.delay_millis(20);
@@ -283,6 +284,7 @@ fn main() -> ! {
         bus.write(buttons::PCF8574_ADDR, &[buttons::RELEASE_ALL])
             .expect("release expander pins");
         let mut reader = KeyReader::default();
+        let mut menu = Menu::new(Settings::default());
         let mut port = [0u8; 1];
         let mut last_touch = pad.is_high();
         let mut held_ms = 0u32;
@@ -302,6 +304,23 @@ fn main() -> ! {
                         buttons::Key::Back => "Back",
                     }
                 );
+                let outcome = menu.press(key);
+                if outcome.save {
+                    // No flash write yet, so a change lasts until the lamp sleeps. This is the
+                    // line that becomes a call to store the settings block once storage exists.
+                    info!("settings changed; not stored yet");
+                }
+                if outcome.redraw {
+                    match menu.screen {
+                        // Leaving the menu puts the clock back, read fresh in case the window
+                        // crossed a minute.
+                        Screen::Home => {
+                            let now = now_minutes(&mut bus);
+                            face.show_clock(now, face_next, false);
+                        }
+                        _ => face.show_menu(&menu),
+                    }
+                }
                 busy = true;
             }
             // The pad is the thing that woke the lamp, so say what it is doing too.
@@ -328,7 +347,7 @@ fn main() -> ! {
         // The window may have crossed a minute, and the alarm was armed before it. Redraw with
         // the corner mark on, so the last thing on the glass is the lamp going back to sleep.
         let later = now_minutes(&mut bus);
-        face.show(later, face_next, true);
+        face.show_clock(later, face_next, true);
         wakes_at = arm_next_minute(&mut bus, later);
     }
 

@@ -16,7 +16,9 @@ use esp_hal::spi::master::Spi;
 use lamp_core::calendar::{
     DATE_LEN, HHMM12_LEN, format_date, format_hhmm12, meridiem, utc_to_egypt,
 };
+use lamp_core::menu::{Field, Menu, Screen, day_name};
 use lamp_core::schedule::Prayer;
+use lamp_core::settings::MAX_USER_ALARMS;
 use weact_studio_epd::graphics::{Display213BlackWhite, DisplayRotation};
 use weact_studio_epd::{Color, WeActStudio213BlackWhiteDriver};
 
@@ -116,7 +118,7 @@ impl Face {
     /// glass. `next` is the prayer and its time in UTC minutes, or `None` when the clock's time
     /// cannot be trusted, in which case the face says so instead of naming a prayer. `sleeping`
     /// puts the corner mark on, saying the lamp is about to go back down.
-    pub fn show(&mut self, now_min: i64, next: Option<(i64, Prayer)>, sleeping: bool) {
+    pub fn show_clock(&mut self, now_min: i64, next: Option<(i64, Prayer)>, sleeping: bool) {
         if !self.ready {
             return;
         }
@@ -198,10 +200,136 @@ impl Face {
         self.fast = true;
     }
 
+    /// Draw the screen the menu is on. The clock face is [`Self::show_clock`]; everything else
+    /// comes from the menu's own state, which is why this only has to know how to lay out rows.
+    pub fn show_menu(&mut self, menu: &Menu) {
+        if !self.ready {
+            return;
+        }
+        let frame = &mut self.frame;
+        frame.clear(Color::White);
+        let small = MonoTextStyle::new(&FONT_6X10, Color::Black);
+        let _ = Rectangle::new(Point::new(0, 0), Size::new(250, 128))
+            .into_styled(PrimitiveStyle::with_stroke(Color::Black, 1))
+            .draw(frame);
+
+        match menu.screen {
+            // Nothing to draw: the caller shows the clock face for Home.
+            Screen::Home => {}
+            Screen::Top { cursor } => {
+                for (i, label) in ["Prayers", "My alarms", "Exit"].into_iter().enumerate() {
+                    let y = 44 + i as i32 * 24;
+                    if i as u8 == cursor {
+                        let _ = Text::new(">", Point::new(12, y), small).draw(frame);
+                    }
+                    let _ = Text::new(label, Point::new(28, y), small).draw(frame);
+                }
+            }
+            Screen::Prayers { cursor } => {
+                for (i, p) in Prayer::ALL.into_iter().enumerate() {
+                    let y = 28 + i as i32 * 20;
+                    if i as u8 == cursor {
+                        let _ = Text::new(">", Point::new(12, y), small).draw(frame);
+                    }
+                    let _ = Text::new(p.name(), Point::new(28, y), small).draw(frame);
+                    let on = if menu.settings.prayer_on(p) { "on" } else { "off" };
+                    let _ = Text::new(on, Point::new(150, y), small).draw(frame);
+                }
+            }
+            Screen::Alarms { cursor } => {
+                // Five rows fit, so the list scrolls under the cursor.
+                let last = MAX_USER_ALARMS as u8 - 5;
+                let first = cursor.saturating_sub(2).min(last);
+                for i in 0..5u8 {
+                    let slot = first + i;
+                    let y = 28 + i as i32 * 20;
+                    if slot == cursor {
+                        let _ = Text::new(">", Point::new(12, y), small).draw(frame);
+                    }
+                    let alarm = menu.settings.alarms[slot as usize];
+                    if alarm.used {
+                        let mut t_buf = [0u8; HHMM12_LEN];
+                        let t = format_hhmm12(alarm.minute as i64, &mut t_buf);
+                        let _ = Text::new(t, Point::new(28, y), small).draw(frame);
+                        let _ = Text::new(
+                            meridiem(alarm.minute as i64),
+                            Point::new(28 + t.len() as i32 * 6 + 6, y),
+                            small,
+                        )
+                        .draw(frame);
+                        let _ = Text::new(day_name(alarm.days), Point::new(120, y), small).draw(frame);
+                        if !alarm.enabled {
+                            let _ = Text::new("off", Point::new(210, y), small).draw(frame);
+                        }
+                    } else {
+                        let _ = Text::new("empty", Point::new(28, y), small).draw(frame);
+                    }
+                }
+            }
+            Screen::Edit { field, draft, .. } => {
+                let mut hour = [0u8; 2];
+                let mut minute = [0u8; 2];
+                let h12 = match (draft.minute / 60) % 12 {
+                    0 => 12,
+                    h => h,
+                };
+                let rows = [
+                    ("Hour", two(h12 as u32, &mut hour)),
+                    ("Minute", two((draft.minute % 60) as u32, &mut minute)),
+                    ("Days", day_name(draft.days)),
+                    ("Save", ""),
+                    ("Delete", ""),
+                ];
+                for (i, (label, value)) in rows.into_iter().enumerate() {
+                    let y = 28 + i as i32 * 20;
+                    if i as u8 == field {
+                        let _ = Text::new(">", Point::new(12, y), small).draw(frame);
+                    }
+                    let _ = Text::new(label, Point::new(28, y), small).draw(frame);
+                    let _ = Text::new(value, Point::new(96, y), small).draw(frame);
+                    // The hour row is the first field, and it needs saying whether it is
+                    // morning or afternoon.
+                    if i == Field::Hour as usize {
+                        let _ = Text::new(
+                            meridiem(draft.minute as i64),
+                            Point::new(96 + value.len() as i32 * 6 + 6, y),
+                            small,
+                        )
+                        .draw(frame);
+                    }
+                }
+            }
+        }
+
+        self.push();
+    }
+
+    /// Send whatever is in the frame buffer to the glass: the full refresh only for the first draw
+    /// of a cold boot, the quiet one after that.
+    fn push(&mut self) {
+        let refreshed = if self.fast {
+            self.driver.fast_update(&self.frame)
+        } else {
+            self.driver.full_update(&self.frame)
+        };
+        if let Err(e) = refreshed {
+            defmt::info!("panel: refresh failed: {:?}", defmt::Debug2Format(&e));
+        }
+        // The glass now holds this image, so the next draw can take the diff against it.
+        self.fast = true;
+    }
+
     /// Send the panel into its deep sleep, which keeps the last image with no power at all.
     pub fn finish(mut self) {
         if self.ready && self.driver.sleep().is_err() {
             defmt::info!("panel: could not be put to sleep");
         }
     }
+}
+
+/// A value with a leading zero, for a menu row; two bytes is the widest the rows need.
+fn two(v: u32, buf: &mut [u8; 2]) -> &str {
+    buf[0] = b'0' + (v / 10 % 10) as u8;
+    buf[1] = b'0' + (v % 10) as u8;
+    core::str::from_utf8(buf).unwrap_or("")
 }

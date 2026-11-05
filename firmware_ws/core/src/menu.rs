@@ -7,6 +7,18 @@ use crate::schedule::ALL_DAYS;
 /// Day sets offered when editing an alarm, in the order Up/Down steps through them.
 pub const DAY_PRESETS: [u8; 4] = [ALL_DAYS, SUN_TO_THU, FRI_SAT, FRIDAY];
 
+/// The words a day set is shown as, matched to the presets above. Anything else is a set the
+/// presets do not offer, which no screen should be able to produce.
+pub fn day_name(days: u8) -> &'static str {
+    match days {
+        ALL_DAYS => "every day",
+        SUN_TO_THU => "Sun-Thu",
+        FRI_SAT => "Fri-Sat",
+        FRIDAY => "Fri",
+        _ => "custom",
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Field {
     Hour,
@@ -142,6 +154,12 @@ mod tests {
 
     fn menu() -> Menu {
         Menu::new(Settings::default())
+    }
+
+    #[test]
+    fn every_preset_has_words() {
+        assert_eq!(DAY_PRESETS.map(day_name), ["every day", "Sun-Thu", "Fri-Sat", "Fri"]);
+        assert_eq!(day_name(0b0100_0001), "custom");
     }
 
     #[test]
