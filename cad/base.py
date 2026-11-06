@@ -55,11 +55,13 @@ EPD_W, EPD_H, EPD_T = 72.0, 30.0, 3.4         # WeAct 2.13 module + slack
 EPD_Z0 = WIN_Z - EPD_H / 2
 TOUCH_X, TOUCH_Z = 31.0, 8.5
 
-# the touch mark: two tiny lamps, one lit and one dark, engraved into the wall where the pad sits
-LAMP_DX = 3.2          # half the distance between the two lamp centres
-LAMP_R = 1.7           # bulb radius
-LAMP_BASE_W, LAMP_BASE_H = 1.4, 0.9
-LAMP_RING = 0.85       # the dark bulb is a ring this wide: a 0.5 mm groove gets closed by gap fill
+# the touch mark: two tiny lamps, one lit and one dark, engraved into the wall where the pad sits.
+# They sit 0.8 mm apart on purpose, so the pair reads as ONE mark for the pad and not as two
+# indicator dots
+LAMP_DX = 2.7          # half the distance between the two lamp centres
+LAMP_R = 2.2           # bulb radius
+LAMP_BASE_W, LAMP_BASE_H = 2.2, 1.1     # foot under the bulb
+LAMP_RING = 0.9        # the dark bulb is a ring this wide: a 0.5 mm groove gets closed by gap fill
 LAMP_ENGRAVE = 0.4     # how deep the mark is cut into the 2 mm front wall
 
 # four menu buttons in a row under the window: Up, Down, Ok, Back, left to right
@@ -195,16 +197,16 @@ def body():
     # touch pad mark: two lamps, one lit and one dark, engraved into the 2 mm wall where the pad
     # sits; the cut also thins the wall under the finger, which is what the sensor wants. The pad
     # has to clear BTN_BLOCK_X (inside it the wall is 9.5 mm thick) and the mark stays well inboard
-    # of the tapered edge, where the flat face is 45 mm wide at this height
+    # of the tapered edge, where the face is 45 mm either side of the middle at this height
     cut0, cut1 = FRONT_OUT - 1.0, FRONT_OUT + LAMP_ENGRAVE
-    bulb_z = TOUCH_Z + LAMP_BASE_H / 2         # centre the whole mark on the pad
-    base_top = bulb_z - LAMP_R + 0.3           # the base bites into the bulb, so the two merge
+    bulb_z = TOUCH_Z + (LAMP_BASE_H - 0.35) / 2   # centre the whole mark on the pad
     def lamp(cx, lit):
         bulb = ycyl(LAMP_R, cut0, cut1, cx, bulb_z)
         if not lit:                            # dark: the bulb is left in outline
             bulb -= ycyl(LAMP_R - LAMP_RING, cut0 - 1, cut1 + 1, cx, bulb_z)
+        # a wide little foot under the bulb, so the mark reads as a lamp on a stand rather than a dot
         base = box(cx - LAMP_BASE_W / 2, cx + LAMP_BASE_W / 2, cut0, cut1,
-                   base_top - LAMP_BASE_H, base_top)
+                   bulb_z - LAMP_R + 0.35 - LAMP_BASE_H, bulb_z - LAMP_R + 0.35)
         return bulb + base
     b -= tilt(lamp(TOUCH_X - LAMP_DX, True) + lamp(TOUCH_X + LAMP_DX, False))
 
