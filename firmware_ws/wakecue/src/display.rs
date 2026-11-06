@@ -253,6 +253,43 @@ impl Face {
         self.push();
     }
 
+    /// Draw the alarm: what is ringing and when it was due, on either a white or a black ground so
+    /// the two alternate and the panel flashes. `inverted` picks which.
+    ///
+    /// This is a stand-in for the ring and the card, not a design in its own right: the caller
+    /// flashes it until the alarm is answered, and the sound and the light will be driven from the
+    /// same place.
+    pub fn show_alarm(&mut self, title: &str, at: i64, inverted: bool) {
+        if !self.ready {
+            return;
+        }
+        let local = utc_to_egypt(at);
+        let mut time_buf = [0u8; HHMM12_LEN];
+        let time = format_hhmm12(local, &mut time_buf);
+        let ampm = meridiem(local);
+        let (ground, ink) = if inverted {
+            (Color::Black, Color::White)
+        } else {
+            (Color::White, Color::Black)
+        };
+
+        let frame = &mut self.frame;
+        frame.clear(ground);
+        let big = MonoTextStyle::new(&FONT_10X20, ink);
+        let small = MonoTextStyle::new(&FONT_6X10, ink);
+
+        // FONT_10X20 advances ten pixels a character, so the word centres as len times ten.
+        let _ = Text::new(title, Point::new((250 - title.len() as i32 * 10) / 2, 52), big)
+            .draw(frame);
+        // The time and its meridiem centre as one run, or the two would drift apart.
+        let run = time.len() as i32 * 10 + 6 + ampm.len() as i32 * 6;
+        let x = (250 - run) / 2;
+        let _ = Text::new(time, Point::new(x, 88), big).draw(frame);
+        let _ = Text::new(ampm, Point::new(x + time.len() as i32 * 10 + 6, 88), small).draw(frame);
+
+        self.push();
+    }
+
     /// Draw the screen the menu is on. The clock face is [`Self::show_clock`]; everything else
     /// comes from the menu's own state, which is why this only has to know how to lay out rows.
     pub fn show_menu(&mut self, menu: &Menu) {
@@ -270,7 +307,7 @@ impl Face {
             // Nothing to draw: the caller shows the clock face for Home.
             Screen::Home => {}
             Screen::Top { cursor } => {
-                for (i, label) in ["Prayers", "My alarms", "Exit"].into_iter().enumerate() {
+                for (i, label) in ["Prayers", "My alarms"].into_iter().enumerate() {
                     let y = 44 + i as i32 * 24;
                     if i as u8 == cursor {
                         let _ = Text::new(">", Point::new(12, y), small).draw(frame);

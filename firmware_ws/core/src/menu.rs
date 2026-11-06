@@ -74,12 +74,12 @@ impl Menu {
                 _ => return Outcome::default(),
             },
             Screen::Top { cursor } => match key {
-                Key::Up | Key::Down => Screen::Top { cursor: step(cursor, 3, key) },
+                Key::Up | Key::Down => Screen::Top { cursor: step(cursor, 2, key) },
                 Key::Back => Screen::Home,
+                // Back is the way out of the menu, so there is no Exit row to walk to.
                 Key::Ok => match cursor {
                     0 => Screen::Prayers { cursor: 0 },
-                    1 => Screen::Alarms { cursor: 0 },
-                    _ => Screen::Home,
+                    _ => Screen::Alarms { cursor: 0 },
                 },
             },
             Screen::Prayers { cursor } => match key {
@@ -193,9 +193,26 @@ mod tests {
         let mut m = menu();
         m.press(Key::Ok);
         m.press(Key::Up);
-        assert_eq!(m.screen, Screen::Top { cursor: 2 });
+        assert_eq!(m.screen, Screen::Top { cursor: 1 });
         m.press(Key::Down);
         assert_eq!(m.screen, Screen::Top { cursor: 0 });
+    }
+
+    #[test]
+    fn the_top_screen_is_two_lists_and_back_is_the_way_out() {
+        let mut m = menu();
+        m.press(Key::Ok);
+        m.press(Key::Down);
+        assert_eq!(m.screen, Screen::Top { cursor: 1 });
+        m.press(Key::Up);
+        m.press(Key::Ok);
+        assert!(matches!(m.screen, Screen::Prayers { .. })); // Fajr
+        m.press(Key::Back);
+        m.press(Key::Down);
+        m.press(Key::Ok);
+        assert!(matches!(m.screen, Screen::Alarms { .. }));
+        m.press(Key::Back);
+        assert_eq!(m.screen, Screen::Top { cursor: 1 });
     }
 
     fn open_new_alarm(m: &mut Menu) {

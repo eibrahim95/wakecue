@@ -33,6 +33,17 @@ use wakecue::display::{Face, PanelBus, Standby};
 /// board takes both away, which makes every boot a race. Set to `false` for the real lamp.
 const DEV_MODE: bool = false;
 
+/// How long an alarm nobody answers keeps flashing before the lamp gives up and goes back to
+/// sleep. A real ring should ring for longer than this; the panel is a stand-in, not a clock radio.
+const ALARM_MS: u32 = 60_000;
+
+/// How long each of the alarm's two frames stays up, so the panel changes about once a second.
+const ALARM_BLINK_MS: u32 = 1_000;
+
+/// How often the buttons are read while an alarm is flashing. The debouncer wants two matching
+/// reads, so polling faster than the frame means a press is answered without holding it.
+const ALARM_POLL_MS: u32 = 50;
+
 /// The prayer table from `prayer-gen` (Cairo, ten years from 2026-01-01), built into the image.
 /// `just prayers` regenerates it; the day range travels inside the file.
 static PRAYERS: &[u8] = include_bytes!("../../prayers-cairo.bin");
@@ -108,6 +119,50 @@ fn store(
         at
     );
     true
+}
+
+/// The alarm, on the only output the lamp has so far: the panel, flashing what is ringing and when
+/// it was due, until a key or a touch answers it or until it has gone on long enough. Returns
+/// whether somebody answered.
+///
+/// The ring and the card are the missing half of this. They hang off this same call, with the same
+/// title and the same deadline, which is why the caller passes a title rather than a screen.
+fn run_alarm(
+    face: &mut Face,
+    bus: &mut I2c<'static, esp_hal::Blocking>,
+    pad: &mut Input<'static>,
+    title: &str,
+    at: i64,
+) -> bool {
+    // The expander latches INT low on a press until its port is read, so start from a known
+    // release rather than from whatever the wake left behind.
+    bus.write(buttons::PCF8574_ADDR, &[buttons::RELEASE_ALL])
+        .expect("release expander pins");
+    // Both frames are drawn in turn, so pressing a key is answered without waiting for the rest of
+    // the minute: the very next frame is the clock face.
+    let delay = Delay::new();
+    let mut reader = KeyReader::default();
+    let mut port = [0u8; 1];
+    let mut waited = 0u32;
+    let mut inverted = false;
+    loop {
+        face.show_alarm(title, at, inverted);
+        inverted = !inverted;
+        waited += ALARM_BLINK_MS;
+        if waited >= ALARM_MS {
+            return false;
+        }
+        let mut polled = 0;
+        while polled < ALARM_BLINK_MS {
+            bus.read(buttons::PCF8574_ADDR, &mut port)
+                .expect("read expander");
+            if reader.update(port[0]).is_some() || pad.is_high() {
+                return true;
+            }
+            delay.delay_millis(ALARM_POLL_MS);
+            polled += ALARM_POLL_MS;
+        }
+    }
 }
 
 /// Clear the flag this boot owns and arm Alarm 1 for the next minute, which it returns.
@@ -227,6 +282,9 @@ fn main() -> ! {
     let mut face_next: Option<(i64, Prayer)> = None;
     // Today's five prayers as local minutes, for the strip along the bottom of the face.
     let mut today: [Option<i64>; 5] = [None; 5];
+    // The event this boot has to answer for, if one came due: the prayer's sound or a user alarm.
+    // The light ramp is not an alarm, and nothing is wired to ring yet.
+    let mut alarm: Option<(i64, Action)> = None;
     if osf {
         // There is no Wi-Fi and no settings page in this crate yet, so the time cannot be
         // fetched. Keep waking once a minute rather than parking the lamp on a clock it
@@ -258,6 +316,9 @@ fn main() -> ! {
                 Stamp(utc_to_egypt(due.utc_min))
             );
             from = due.utc_min + 1;
+            if matches!(due.action, Action::Play { .. } | Action::Alarm) {
+                alarm = Some((due.utc_min, due.action));
+            }
         }
 
         match schedule::next_event(from, &rules[..count], &prayers) {
@@ -278,17 +339,54 @@ fn main() -> ! {
     let mut face = Face::new(PanelBus::new(spi, dc), busy, rst, woken);
     // Asleep unless a hand woke the lamp: the corner mark is what the lamp shows while it is
     // down, and it comes off for as long as somebody is standing in front of it.
-    face.show_clock(Standby {
-        now_min,
-        next: face_next,
-        today,
-        prayers_on: settings.prayers_on,
-        sleeping: !by_hand,
-    });
+    // A boot that woke for an alarm goes straight to the alarm: drawing the clock first would put
+    // a two-second full refresh on the glass at 4 a.m. only to paint over it.
+    if alarm.is_none() {
+        face.show_clock(Standby {
+            now_min,
+            next: face_next,
+            today,
+            prayers_on: settings.prayers_on,
+            sleeping: !by_hand,
+        });
+    }
+
+    // The alarm is the whole reason this boot exists, so it takes the panel until somebody answers
+    // it or it gives up. Whatever happens, the clock is drawn again afterwards: the glass must
+    // never be left showing a ring that has ended.
+    if let Some((at, action)) = alarm {
+        let title = match action {
+            Action::Play { track, .. } => Prayer::ALL[(track.max(1) as usize - 1).min(4)].name(),
+            _ => "Alarm",
+        };
+        info!(
+            "alarm: {} due at {}, flashing for up to {} s",
+            title,
+            Stamp(at),
+            ALARM_MS / 1000
+        );
+        let answered = run_alarm(&mut face, &mut bus, &mut pad, title, at);
+        info!(
+            "alarm: {}",
+            if answered { "answered" } else { "gave up, nobody came" }
+        );
+        let later = now_minutes(&mut bus);
+        face.show_clock(Standby {
+            now_min: later,
+            next: face_next,
+            today,
+            prayers_on: settings.prayers_on,
+            sleeping: !by_hand,
+        });
+    }
 
     // The lamp redraws every minute, so the alarm is always the next minute; what is due is found
-    // by the check above on whichever boot lands on it.
-    let mut wakes_at = arm_next_minute(&mut bus, now_min);
+    // by the check above on whichever boot lands on it. Armed after the alarm window rather than
+    // before it, because an alarm can hold the panel past the minute: programming a minute that
+    // has already gone by leaves the clock's alarm matching nothing, and the lamp would sleep for
+    // good.
+    let after = now_minutes(&mut bus);
+    let mut wakes_at = arm_next_minute(&mut bus, after);
 
     // The bench switch: from here on the only thing left is the sleep, so with dev mode on the
     // board stays awake and turns into a console — buttons, pad and the clock's own answer. It
