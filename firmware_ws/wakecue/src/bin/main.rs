@@ -31,7 +31,7 @@ use wakecue::display::{Face, PanelBus, Standby};
 /// Bench switch. `true` runs the whole boot — clock, schedule, alarm, face — and then stays
 /// awake instead of sleeping, so the USB port stays up and the log keeps running. A sleeping
 /// board takes both away, which makes every boot a race. Set to `false` for the real lamp.
-const DEV_MODE: bool = true;
+const DEV_MODE: bool = false;
 
 /// How long an alarm nobody answers keeps flashing before the lamp gives up and goes back to
 /// sleep. A real ring should ring for longer than this; the panel is a stand-in, not a clock radio.
