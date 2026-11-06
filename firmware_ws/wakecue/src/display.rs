@@ -30,14 +30,23 @@ use weact_studio_epd::{Color, WeActStudio213BlackWhiteDriver};
 /// is the line to change to `Rotate270`.
 const ROTATION: DisplayRotation = DisplayRotation::Rotate90;
 
+/// What the face's "Next:" line names: whichever comes first, a prayer from the table or one of
+/// the lamp's own alarms.
+#[derive(Clone, Copy)]
+pub enum NextUp {
+    Prayer(i64, Prayer),
+    Alarm(i64),
+}
+
 /// What the standby face says. The boot has the prayer table and the settings, so it decides this;
 /// the face only lays it out.
 #[derive(Clone, Copy)]
 pub struct Standby {
     /// The clock's minute count, UTC.
     pub now_min: i64,
-    /// The next prayer and its time in UTC minutes, or `None` when the clock cannot be trusted.
-    pub next: Option<(i64, Prayer)>,
+    /// The next prayer or alarm and its time in UTC minutes, or `None` when the clock cannot be
+    /// trusted.
+    pub next: Option<NextUp>,
     /// Today's five prayers as local minutes after midnight, `None` where the table ends.
     pub today: [Option<i64>; 5],
     /// Which prayers ring, a bit per prayer in [`Prayer::ALL`] order.
@@ -191,11 +200,15 @@ impl Face {
         }
 
         match s.next {
-            Some((at, prayer)) => {
+            Some(upcoming) => {
+                let at = match upcoming {
+                    NextUp::Prayer(at, _) => at,
+                    NextUp::Alarm(at) => at,
+                };
                 let local_at = utc_to_egypt(at);
                 let mut at_buf = [0u8; HHMM12_LEN];
                 let at_text = format_hhmm12(local_at, &mut at_buf);
-                // A prayer shown at 10:43 reading "Fajr 4:44" has to say it is tomorrow's.
+                // A time shown at 10:43 reading "Fajr 4:44" has to say it is tomorrow's.
                 let mut x = 14;
                 let _ = Text::new("Next:", Point::new(x, 72), small).draw(frame);
                 x += 5 * 6 + 6;
@@ -203,8 +216,13 @@ impl Face {
                     let _ = Text::new("tomorrow", Point::new(x, 72), small).draw(frame);
                     x += 8 * 6 + 6;
                 }
-                // FONT_6X10 advances six pixels per character, so each word follows the last.
-                let name = prayer.name();
+                // FONT_6X10 advances six pixels per character, so each word follows the last. The
+                // alarm says only "Alarm": the slot number is in the list, and the line has no
+                // room for both it and the countdown.
+                let name = match upcoming {
+                    NextUp::Prayer(_, prayer) => prayer.name(),
+                    NextUp::Alarm(_) => "Alarm",
+                };
                 let _ = Text::new(name, Point::new(x, 72), small).draw(frame);
                 x += name.len() as i32 * 6 + 6;
                 let _ = Text::new(at_text, Point::new(x, 72), small).draw(frame);

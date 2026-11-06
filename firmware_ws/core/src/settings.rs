@@ -47,6 +47,7 @@
 //!   194     2  snooze until, minutes after midnight
 //!   196    16  reserved, zero
 //! ```
+use crate::calendar::{egypt_offset_min, utc_to_egypt, weekday};
 use crate::schedule::{Action, Prayer, Rule, When, ALL_DAYS};
 
 pub const MAX_USER_ALARMS: usize = 8;
@@ -321,7 +322,6 @@ impl Settings {
     pub fn ssid(&self) -> &str {
         str_of(&self.ssid)
     }
-
     pub fn psk(&self) -> &str {
         str_of(&self.psk)
     }
@@ -349,6 +349,36 @@ impl Settings {
 
     pub fn toggle_prayer(&mut self, p: Prayer) {
         self.prayers_on ^= 1 << p.index();
+    }
+
+    /// The next alarm that will actually ring, at or after `from_utc_min`, as its UTC minute and
+    /// the alarm itself. Only slots that are used and switched on count: an alarm that will not
+    /// ring has no business being named as the next thing the lamp does. Looks eight days ahead,
+    /// which covers a weekly mask plus today.
+    pub fn next_alarm(&self, from_utc_min: i64) -> Option<(i64, UserAlarm)> {
+        let local_now = utc_to_egypt(from_utc_min);
+        let today = local_now.div_euclid(1440) as i32;
+        for ahead in 0..8 {
+            let date = today + ahead;
+            let wd = weekday(date);
+            let mut best: Option<(i64, UserAlarm)> = None;
+            for a in self.alarms.iter().filter(|a| a.used && a.enabled) {
+                if a.days & (1 << wd) == 0 {
+                    continue;
+                }
+                let local = date as i64 * 1440 + a.minute as i64;
+                // The offset in force at that hour, the same way the schedule converts a local
+                // alarm time, so the two agree to the minute across a summer-time change.
+                let utc = local - egypt_offset_min(local - 120);
+                if utc >= from_utc_min && best.is_none_or(|(b, _)| utc < b) {
+                    best = Some((utc, *a));
+                }
+            }
+            if best.is_some() {
+                return best;
+            }
+        }
+        None
     }
 
     /// Fills `out` with the rules the schedule should run and returns how many. Prayer sounds are
@@ -691,6 +721,7 @@ fn crc32(b: &[u8]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::calendar::days_from_civil;
 
     fn sample() -> Settings {
         Settings { prayers_on: 0b1_0101, ..Settings::default() }
@@ -725,6 +756,53 @@ mod tests {
         s.alarms[0] = UserAlarm { used: true, enabled: false, minute: 400, ..UserAlarm::EMPTY };
         let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm }; MAX_RULES];
         assert_eq!(s.rules(&mut out), 2);
+    }
+
+    #[test]
+    fn the_next_alarm_is_the_earliest_one_that_will_ring() {
+        // A UTC minute for a Cairo wall clock, winter offset.
+        fn winter(d: i32, hh: i64, mm: i64) -> i64 {
+            d as i64 * 1440 + hh * 60 + mm - 120
+        }
+        let nov6 = days_from_civil(2026, 11, 6);
+        let nov7 = days_from_civil(2026, 11, 7);
+
+        let mut s = Settings::default();
+        assert_eq!(s.next_alarm(winter(nov6, 12, 0)), None);
+
+        // Two slots on the same day, written out of order: the earlier minute wins, not slot 1.
+        s.alarms[1] =
+            UserAlarm { used: true, enabled: true, days: ALL_DAYS, minute: 20 * 60, ..UserAlarm::EMPTY };
+        s.alarms[4] =
+            UserAlarm { used: true, enabled: true, days: ALL_DAYS, minute: 14 * 60, ..UserAlarm::EMPTY };
+        assert_eq!(s.next_alarm(winter(nov6, 12, 0)).map(|(at, _)| at), Some(winter(nov6, 14, 0)));
+        // Once it has gone, the same alarm tomorrow.
+        assert_eq!(s.next_alarm(winter(nov6, 21, 0)).map(|(at, _)| at), Some(winter(nov7, 14, 0)));
+
+        // A slot that is off, or unused, is not something the lamp will do.
+        s.alarms[1].enabled = false;
+        s.alarms[4].used = false;
+        assert_eq!(s.next_alarm(winter(nov6, 12, 0)), None);
+    }
+
+    #[test]
+    fn the_next_alarm_follows_the_days_mask_and_summer_time() {
+        // Sunday 1 July 2026, 07:00 local, summer offset of +3 hours.
+        let july1 = days_from_civil(2026, 7, 1);
+        let summer = july1 as i64 * 1440 + 7 * 60 - 180;
+        let mut s = Settings::default();
+        s.alarms[0] =
+            UserAlarm { used: true, enabled: true, days: ALL_DAYS, minute: 7 * 60, ..UserAlarm::EMPTY };
+        assert_eq!(s.next_alarm(summer - 60).map(|(at, _)| at), Some(summer));
+
+        // Friday 6 November 2026, 09:00 local: a Sunday-to-Thursday alarm waits for Sunday.
+        let fri = days_from_civil(2026, 11, 6) as i64;
+        let sun = days_from_civil(2026, 11, 8) as i64;
+        s.alarms[0].days = SUN_TO_THU;
+        assert_eq!(
+            s.next_alarm(fri * 1440 + 9 * 60 - 120).map(|(at, _)| at),
+            Some(sun * 1440 + 7 * 60 - 120)
+        );
     }
 
     #[test]

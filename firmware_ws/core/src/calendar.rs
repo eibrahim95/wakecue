@@ -162,10 +162,10 @@ pub fn format_date(min: i64, buf: &mut [u8; DATE_LEN]) -> &str {
 /// Width of the longest text `format_countdown` writes, `in 13h57m`.
 pub const COUNTDOWN_LEN: usize = 13;
 
-/// How long until a prayer, as the face says it: `in 25 min`, `in 13h57m`, or `now`.
+/// How long until a prayer or an alarm, as the face says it: `in 25 min`, `in 2h`, or `now`.
 ///
-/// Past an hour the form goes compact because the face's next-prayer line shares its width with the
-/// prayer's name, a `tomorrow` and the meridiem.
+/// Past an hour the minutes are dropped. The face's next-up line shares its width with the name,
+/// a `tomorrow` and the meridiem, and the exact time is printed right beside the countdown anyway.
 pub fn format_countdown(mins: i64, buf: &mut [u8; COUNTDOWN_LEN]) -> &str {
     let m = mins.max(0) as u32;
     let mut n = 0;
@@ -179,15 +179,12 @@ pub fn format_countdown(mins: i64, buf: &mut [u8; COUNTDOWN_LEN]) -> &str {
         append(buf, &mut n, " min");
     } else {
         append(buf, &mut n, "in ");
-        let h = m / 60;
+        // Rounded, so 1 h 40 m reads as two hours rather than one.
+        let h = (m + 30) / 60;
         let w = if h < 10 { 1 } else { 2 };
         put(buf, n, w, h);
         n += w;
         buf[n] = b'h';
-        n += 1;
-        put(buf, n, 2, m % 60);
-        n += 2;
-        buf[n] = b'm';
         n += 1;
     }
     core::str::from_utf8(&buf[..n]).unwrap_or("")
@@ -205,8 +202,10 @@ mod tests {
         assert_eq!(format_countdown(1, &mut b), "in 1 min");
         assert_eq!(format_countdown(25, &mut b), "in 25 min");
         assert_eq!(format_countdown(59, &mut b), "in 59 min");
-        assert_eq!(format_countdown(60, &mut b), "in 1h00m");
-        assert_eq!(format_countdown(837, &mut b), "in 13h57m");
+        assert_eq!(format_countdown(60, &mut b), "in 1h");
+        assert_eq!(format_countdown(89, &mut b), "in 1h");
+        assert_eq!(format_countdown(90, &mut b), "in 2h");
+        assert_eq!(format_countdown(837, &mut b), "in 14h");
     }
 
     #[test]

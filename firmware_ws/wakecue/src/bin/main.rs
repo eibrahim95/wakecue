@@ -26,7 +26,7 @@ use lamp_core::menu::{Menu, Screen};
 use lamp_core::settings::{
     MAX_RULES, READ_LEN, Sector, Settings, Stored, SECTOR_A, SECTOR_B, SECTOR_LEN, STORED_LEN,
 };
-use wakecue::display::{Face, PanelBus, Standby};
+use wakecue::display::{Face, NextUp, PanelBus, Standby};
 
 /// Bench switch. `true` runs the whole boot — clock, schedule, alarm, face — and then stays
 /// awake instead of sleeping, so the USB port stays up and the log keeps running. A sleeping
@@ -75,6 +75,23 @@ fn now_minutes(bus: &mut I2c<'static, esp_hal::Blocking>) -> i64 {
     bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_TIME], &mut t)
         .expect("read time");
     ds3231::parse_time_registers(t).div_euclid(60)
+}
+
+/// What the face's next-up line should name at `now_min`: the sooner of the next prayer and the
+/// next alarm that will ring.
+///
+/// Prayers count whether or not their switch is on — the glass is a prayer clock, and the strip
+/// below already lists all five — while an alarm only counts if it is set and enabled, because an
+/// alarm that will not ring is not something the lamp is about to do.
+fn next_up(now_min: i64, settings: &Settings, prayers: &PrayerTable) -> Option<NextUp> {
+    match (schedule::next_prayer(now_min, prayers), settings.next_alarm(now_min)) {
+        (Some((prayer_at, _)), Some((alarm_at, _))) if alarm_at < prayer_at => {
+            Some(NextUp::Alarm(alarm_at))
+        }
+        (Some((prayer_at, prayer)), _) => Some(NextUp::Prayer(prayer_at, prayer)),
+        (None, Some((alarm_at, _))) => Some(NextUp::Alarm(alarm_at)),
+        (None, None) => None,
+    }
 }
 
 /// A key as the log names it.
@@ -228,6 +245,8 @@ fn main() -> ! {
     let mut sectors = [read_block(&mut flash, SECTOR_A), read_block(&mut flash, SECTOR_B)];
     let stored = Stored::newest(sectors[0], sectors[1]);
     let settings = stored.map_or_else(Settings::default, |s| s.settings);
+    // Built once: the face asks for the next prayer on every draw, not only at boot.
+    let prayers = PrayerTable::from_blob(PRAYERS).expect("prayer table");
 
     // The display owns GPIO0, 1, 2, 8 and 9 (reset, busy, data/command, data, clock), so
     // this firmware never drives the onboard LED: it shares GPIO8 with the SPI data line.
@@ -293,9 +312,9 @@ fn main() -> ! {
         None => info!("settings: nothing stored, defaults"),
     }
 
-    // The prayer the face names, decided below; `None` means the clock cannot be trusted, so the
-    // face says that instead of naming one.
-    let mut face_next: Option<(i64, Prayer)> = None;
+    // What the face's next-up line names, decided below; `None` means the clock cannot be trusted,
+    // so the face says that instead of naming anything.
+    let mut face_next: Option<NextUp> = None;
     // Today's five prayers as local minutes, for the strip along the bottom of the face.
     let mut today: [Option<i64>; 5] = [None; 5];
     // The event this boot has to answer for, if one came due: the prayer's sound or a user alarm.
@@ -313,10 +332,9 @@ fn main() -> ! {
             action: Action::LampOff,
         }; MAX_RULES];
         let count = settings.rules(&mut rules);
-        let prayers = PrayerTable::from_blob(PRAYERS).expect("prayer table");
         // The face names the next prayer of the five, whatever the switches say: it is a clock,
         // and the schedule below only answers "what will the lamp act on".
-        face_next = schedule::next_prayer(now_min, &prayers);
+        face_next = next_up(now_min, &settings, &prayers);
         today = schedule::local_times(now_min, &prayers);
 
         // Anything whose time has arrived is this boot's job. The alarm fired, so the event
@@ -387,6 +405,9 @@ fn main() -> ! {
             if answered { "answered" } else { "gave up, nobody came" }
         );
         let later = now_minutes(&mut bus);
+        if !osf {
+            face_next = next_up(later, &settings, &prayers);
+        }
         face.show_clock(Standby {
             now_min: later,
             next: face_next,
@@ -500,6 +521,9 @@ fn main() -> ! {
                 );
                 if menu.screen == Screen::Home && now != shown_min && face.is_idle() {
                     shown_min = now;
+                    if !osf {
+                        face_next = next_up(now, &menu.settings, &prayers);
+                    }
                     face.show_clock(Standby {
                         now_min: now,
                         next: face_next,
@@ -521,6 +545,11 @@ fn main() -> ! {
                     Screen::Home => {
                         let now = now_minutes(&mut bus);
                         shown_min = now;
+                        // Fresh from the settings that were just changed: an alarm set from the
+                        // menu has to be able to become the next thing the face names.
+                        if !osf {
+                            face_next = next_up(now, &menu.settings, &prayers);
+                        }
                         face.show_clock(Standby {
                             now_min: now,
                             next: face_next,
@@ -547,6 +576,9 @@ fn main() -> ! {
         // The window may have crossed a minute, and the alarm was armed before it. Redraw with
         // the corner mark on, so the last thing on the glass is the lamp going back to sleep.
         let later = now_minutes(&mut bus);
+        if !osf {
+            face_next = next_up(later, &menu.settings, &prayers);
+        }
         face.show_clock(Standby {
             now_min: later,
             next: face_next,
