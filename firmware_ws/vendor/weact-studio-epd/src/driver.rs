@@ -96,6 +96,13 @@ where
 {
     const RESET_DELAY_MS: u32 = 50;
 
+    /// How long the busy line may stay high before the wait gives up, in milliseconds. A full
+    /// refresh of this glass takes about two seconds; anything past a few more than that is a panel
+    /// that is not going to answer.
+    ///
+    /// Local patch, to go with the timeout in `wait_until_idle`.
+    const BUSY_TIMEOUT_MS: u32 = 5_000;
+
     /// Create a new display driver.
     ///
     /// Use [`Self::init`] to initialize the display.
@@ -116,7 +123,7 @@ where
         self.hw_reset().await;
         self.command(command::SW_RESET).await?;
         self.delay.delay_ms(10).await;
-        self.wait_until_idle().await;
+        self.wait_until_idle().await?;
         self.command_with_data(
             command::DRIVER_CONTROL,
             &[(HEIGHT - 1) as u8, ((HEIGHT - 1) >> 8) as u8, 0x00],
@@ -134,7 +141,7 @@ where
         self.command_with_data(command::TEMP_CONTROL, &[flag::INTERNAL_TEMP_SENSOR])
             .await?;
         self.use_full_frame().await?;
-        self.wait_until_idle().await;
+        self.wait_until_idle().await?;
         Ok(())
     }
 
@@ -234,7 +241,7 @@ where
         self.command_with_data(command::UPDATE_DISPLAY_CTRL2, &[flag::DISPLAY_MODE_1])
             .await?;
         self.command(command::MASTER_ACTIVATE).await?;
-        self.wait_until_idle().await;
+        self.wait_until_idle().await?;
         Ok(())
     }
 
@@ -325,19 +332,32 @@ where
     /// Send an array of bytes to the display.
     async fn data(&mut self, data: &[u8]) -> Result<()> {
         self.interface.send_data(DataFormat::U8(data)).await?;
-        self.wait_until_idle().await;
+        self.wait_until_idle().await?;
         Ok(())
     }
 
-    /// Waits until device isn't busy anymore (busy == HIGH).
-    async fn wait_until_idle(&mut self) {
+    /// Waits until the device is not busy any more.
+    ///
+    /// Local patch: this used to wait for ever. The busy line is the only thing that can tell a
+    /// panel from a dead one, and a panel that stops answering must not take the lamp down with
+    /// it, so the wait gives up after [`Self::BUSY_TIMEOUT_MS`] and says so. A full refresh of
+    /// this glass takes about two seconds, so the limit is generous.
+    async fn wait_until_idle(&mut self) -> Result<()> {
         #[cfg(feature = "blocking")]
-        while self.busy.is_high().unwrap_or(true) {
-            self.delay.delay_ms(1)
+        {
+            let mut waited_ms = 0u32;
+            while self.busy.is_high().unwrap_or(true) {
+                if waited_ms >= Self::BUSY_TIMEOUT_MS {
+                    return Err(display_interface::DisplayError::BusWriteError);
+                }
+                self.delay.delay_ms(1);
+                waited_ms += 1;
+            }
         }
 
         #[cfg(not(feature = "blocking"))]
         let _ = self.busy.wait_for_low().await;
+        Ok(())
     }
 
     /// Sending a command and the data belonging to it.
@@ -395,7 +415,7 @@ where
         self.command_with_data(command::UPDATE_DISPLAY_CTRL2, &[flag::UNDOCUMENTED])
             .await?;
         self.command(command::MASTER_ACTIVATE).await?;
-        self.wait_until_idle().await;
+        self.wait_until_idle().await?;
         Ok(())
     }
 

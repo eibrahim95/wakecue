@@ -31,7 +31,7 @@ use wakecue::display::{Face, PanelBus, Standby};
 /// Bench switch. `true` runs the whole boot — clock, schedule, alarm, face — and then stays
 /// awake instead of sleeping, so the USB port stays up and the log keeps running. A sleeping
 /// board takes both away, which makes every boot a race. Set to `false` for the real lamp.
-const DEV_MODE: bool = false;
+const DEV_MODE: bool = true;
 
 /// How long an alarm nobody answers keeps flashing before the lamp gives up and goes back to
 /// sleep. A real ring should ring for longer than this; the panel is a stand-in, not a clock radio.
@@ -69,6 +69,16 @@ fn now_minutes(bus: &mut I2c<'static, esp_hal::Blocking>) -> i64 {
     bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_TIME], &mut t)
         .expect("read time");
     ds3231::parse_time_registers(t).div_euclid(60)
+}
+
+/// A key as the log names it.
+fn key_name(key: buttons::Key) -> &'static str {
+    match key {
+        buttons::Key::Up => "Up",
+        buttons::Key::Down => "Down",
+        buttons::Key::Ok => "OK",
+        buttons::Key::Back => "Back",
+    }
 }
 
 /// A byte buffer the flash ROM can take as it stands. Given a pointer it cannot align, it copies
@@ -388,103 +398,56 @@ fn main() -> ! {
     let after = now_minutes(&mut bus);
     let mut wakes_at = arm_next_minute(&mut bus, after);
 
-    // The bench switch: from here on the only thing left is the sleep, so with dev mode on the
-    // board stays awake and turns into a console — buttons, pad and the clock's own answer. It
-    // is not a separate build: everything above this line ran for real.
-    if DEV_MODE {
-        info!("dev mode: staying awake so the log stays attached");
-        bus.write(buttons::PCF8574_ADDR, &[buttons::RELEASE_ALL])
-            .expect("release expander pins");
-        let mut reader = KeyReader::default();
-        let mut port = [0u8; 1];
-        let mut last_port = buttons::RELEASE_ALL;
-        let mut last_touch = pad.is_high();
-        let mut shown_min = now_min;
-        let mut ticks = 0u32;
-        loop {
-            bus.read(buttons::PCF8574_ADDR, &mut port)
-                .expect("read expander");
-            if port[0] != last_port {
-                last_port = port[0];
-                info!("port {}", port[0]);
-            }
-            if let Some(key) = reader.update(port[0]) {
-                info!(
-                    "pressed {}",
-                    match key {
-                        buttons::Key::Up => "Up",
-                        buttons::Key::Down => "Down",
-                        buttons::Key::Ok => "OK",
-                        buttons::Key::Back => "Back",
-                    }
-                );
-            }
-            let touch = pad.is_high();
-            if touch != last_touch {
-                last_touch = touch;
-                info!("pad {}", if touch { "touched" } else { "released" });
-            }
-            // Every five seconds, the clock's own answer, so a stopped or drifting clock shows
-            // up while sitting at the bench rather than at 4 a.m. A new minute also redraws the
-            // face, which is the fast-refresh path the lamp itself takes on every wake.
-            ticks += 1;
-            if ticks % 250 == 0 {
-                let mut t = [0u8; 7];
-                bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_TIME], &mut t)
-                    .expect("read time");
-                let now = ds3231::parse_time_registers(t).div_euclid(60);
-                info!(
-                    "now {} UTC, sqw {}",
-                    Stamp(now),
-                    if sqw.is_high() { "high" } else { "low" }
-                );
-                if now != shown_min {
-                    shown_min = now;
-                    face.show_clock(Standby {
-                        now_min: now,
-                        next: face_next,
-                        today,
-                        prayers_on: settings.prayers_on,
-                        sleeping: false,
-                    });
-                }
-            }
-            delay.delay_millis(20);
-        }
-    }
-
     // A hand is the only way a person announces themselves — the pad, or any of the four buttons
     // sharing the clock's wake line through the expander's INT. It is worth staying awake for:
-    // the face is readable, the buttons work, and a quiet lamp goes back to sleep by itself. Any
+    // the face is readable, the menu works, and a quiet lamp goes back to sleep by itself. Any
     // press or touch restarts the clock, so a menu being used never times out mid-press. A press
     // held for a second is a different thing from a tap, and will toggle the lamp once there is a
     // ring to toggle.
-    if by_hand {
-        info!("awake: a hand woke the lamp, staying {} s", buttons::IDLE_SLEEP_MS / 1000);
+    //
+    // Dev mode opens the same window without needing a hand and never closes it, so the log stays
+    // attached while the menu is driven from the bench. It is not a separate build: everything
+    // above this line ran for real.
+    if by_hand || DEV_MODE {
+        if DEV_MODE {
+            info!("awake: dev mode, the window stays open so the log keeps up");
+        } else {
+            info!("awake: a hand woke the lamp, staying {} s", buttons::IDLE_SLEEP_MS / 1000);
+        }
         bus.write(buttons::PCF8574_ADDR, &[buttons::RELEASE_ALL])
             .expect("release expander pins");
         let mut reader = KeyReader::default();
         let mut menu = Menu::new(settings);
         let mut port = [0u8; 1];
+        let mut last_port = buttons::RELEASE_ALL;
         let mut last_touch = pad.is_high();
         let mut held_ms = 0u32;
         let mut idle_ms = 0u32;
         let mut lamp_on = false;
-        while idle_ms < buttons::IDLE_SLEEP_MS {
+        let mut shown_min = now_min;
+        let mut ticks = 0u32;
+        loop {
             let mut busy = false;
             bus.read(buttons::PCF8574_ADDR, &mut port)
                 .expect("read expander");
+            // The raw port as well as the decoded key: a port that stops changing means the
+            // expander or the bus, a port that changes with no key means the decoding.
+            if port[0] != last_port {
+                last_port = port[0];
+                info!("port {}", port[0]);
+            }
             if let Some(key) = reader.update(port[0]) {
-                info!(
-                    "pressed {}",
-                    match key {
-                        buttons::Key::Up => "Up",
-                        buttons::Key::Down => "Down",
-                        buttons::Key::Ok => "OK",
-                        buttons::Key::Back => "Back",
-                    }
-                );
+                // One line per press, with the screen on both sides of it: if the lamp ever stops
+                // answering again, the last line names the press and the screen it died on.
+                let before = menu.screen;
                 let outcome = menu.press(key);
+                info!(
+                    "menu: {} on {:?} -> {:?}, save {}",
+                    key_name(key),
+                    defmt::Debug2Format(&before),
+                    defmt::Debug2Format(&menu.screen),
+                    outcome.save
+                );
                 if outcome.save {
                     // The menu has already changed its own copy. This is the only place a block is
                     // written, so the minute tick can never wear the flash out; a failed write
@@ -528,7 +491,34 @@ fn main() -> ! {
             } else {
                 held_ms = 0;
             }
+            // Every five seconds, the clock's own answer, so a stopped or drifting clock shows up
+            // while sitting at the bench rather than at 4 a.m. A new minute with the face up also
+            // redraws it, the same fast-refresh path the lamp takes on every wake.
+            ticks += 1;
+            if ticks % 250 == 0 {
+                let now = now_minutes(&mut bus);
+                info!(
+                    "now {} UTC, sqw {}",
+                    Stamp(now),
+                    if sqw.is_high() { "high" } else { "low" }
+                );
+                if menu.screen == Screen::Home && now != shown_min {
+                    shown_min = now;
+                    face.show_clock(Standby {
+                        now_min: now,
+                        next: face_next,
+                        today,
+                        prayers_on: menu.settings.prayers_on,
+                        sleeping: false,
+                    });
+                }
+            }
             idle_ms = if busy { 0 } else { idle_ms + 20 };
+            // Dev mode keeps the window open for the log; a hand's window closes after the idle
+            // time so the lamp goes back to saving its battery.
+            if !DEV_MODE && idle_ms >= buttons::IDLE_SLEEP_MS {
+                break;
+            }
             delay.delay_millis(20);
         }
         info!("awake: idle, back to sleep");
