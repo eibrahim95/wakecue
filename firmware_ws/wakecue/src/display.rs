@@ -334,29 +334,50 @@ impl Face {
                     let slot = first + i;
                     let y = 28 + i as i32 * 20;
                     if slot == cursor {
-                        let _ = Text::new(">", Point::new(12, y), small).draw(frame);
+                        let _ = Text::new(">", Point::new(4, y), small).draw(frame);
                     }
+                    // Every empty row looks the same, so the slot number is what says the cursor
+                    // moved at all — and what tells one empty slot from the next.
+                    let mut number = [0u8; 1];
+                    number[0] = b'1' + slot;
+                    let _ = Text::new(
+                        core::str::from_utf8(&number).unwrap_or(""),
+                        Point::new(16, y),
+                        small,
+                    )
+                    .draw(frame);
                     let alarm = menu.settings.alarms[slot as usize];
                     if alarm.used {
                         let mut t_buf = [0u8; HHMM12_LEN];
                         let t = format_hhmm12(alarm.minute as i64, &mut t_buf);
-                        let _ = Text::new(t, Point::new(28, y), small).draw(frame);
+                        let _ = Text::new(t, Point::new(34, y), small).draw(frame);
                         let _ = Text::new(
                             meridiem(alarm.minute as i64),
-                            Point::new(28 + t.len() as i32 * 6 + 6, y),
+                            Point::new(34 + t.len() as i32 * 6 + 6, y),
                             small,
                         )
                         .draw(frame);
                         let _ = Text::new(day_name(alarm.days), Point::new(120, y), small).draw(frame);
                         if !alarm.enabled {
-                            let _ = Text::new("off", Point::new(210, y), small).draw(frame);
+                            let _ = Text::new("off", Point::new(214, y), small).draw(frame);
                         }
                     } else {
-                        let _ = Text::new("empty", Point::new(28, y), small).draw(frame);
+                        let _ = Text::new("empty", Point::new(34, y), small).draw(frame);
                     }
                 }
             }
-            Screen::Edit { field, draft, .. } => {
+            Screen::Edit { slot, field, draft } => {
+                // The list is gone once a row is open, so the screen has to say which alarm it is
+                // editing.
+                let _ = Text::new("Alarm", Point::new(14, 18), small).draw(frame);
+                let mut number = [0u8; 1];
+                number[0] = b'1' + slot;
+                let _ = Text::new(
+                    core::str::from_utf8(&number).unwrap_or(""),
+                    Point::new(14 + 5 * 6 + 6, 18),
+                    small,
+                )
+                .draw(frame);
                 let mut hour = [0u8; 2];
                 let mut minute = [0u8; 2];
                 let h12 = match (draft.minute / 60) % 12 {
@@ -371,7 +392,7 @@ impl Face {
                     ("Delete", ""),
                 ];
                 for (i, (label, value)) in rows.into_iter().enumerate() {
-                    let y = 28 + i as i32 * 20;
+                    let y = 36 + i as i32 * 18;
                     if i as u8 == field {
                         let _ = Text::new(">", Point::new(12, y), small).draw(frame);
                     }
