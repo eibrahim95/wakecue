@@ -476,15 +476,16 @@ where
     /// panel is busy and would not hear it.
     pub async fn fast_update_start(&mut self, buffer: &[u8]) -> Result<()> {
         self.write_bw_buffer(buffer).await?;
-        self.fast_refresh_start().await
+        self.fast_refresh_start().await?;
+        // Wait for the busy line to rise here, while the command is fresh: by the time the finish
+        // runs the refresh may already be over, and asking then would only burn a timeout.
+        self.wait_until_busy().await;
+        Ok(())
     }
 
     /// Wait for the refresh started above, then leave both RAMs holding the frame just drawn, so
     /// the next update diffs against what is actually on the glass.
     pub async fn fast_update_finish(&mut self, buffer: &[u8]) -> Result<()> {
-        // The busy line takes a moment to rise after the command; waiting for it first is what
-        // stops the trailing writes racing the start of the refresh.
-        self.wait_until_busy().await;
         self.wait_until_idle().await?;
         self.write_red_buffer(buffer).await?;
         self.write_bw_buffer(buffer).await?;
