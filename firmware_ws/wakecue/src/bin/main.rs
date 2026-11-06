@@ -44,6 +44,12 @@ const ALARM_BLINK_MS: u32 = 1_000;
 /// reads, so polling faster than the frame means a press is answered without holding it.
 const ALARM_POLL_MS: u32 = 50;
 
+/// How long the fingers must be still before the panel is drawn. Nothing is sampled while the
+/// glass refreshes, so a run of presses is applied to the menu first and drawn once at the end:
+/// pressing Down five times moves five rows instead of one, and only the presses that land inside
+/// a refresh are still lost.
+const DRAW_QUIET_MS: u32 = 180;
+
 /// The prayer table from `prayer-gen` (Cairo, ten years from 2026-01-01), built into the image.
 /// `just prayers` regenerates it; the day range travels inside the file.
 static PRAYERS: &[u8] = include_bytes!("../../prayers-cairo.bin");
@@ -426,6 +432,8 @@ fn main() -> ! {
         let mut lamp_on = false;
         let mut shown_min = now_min;
         let mut ticks = 0u32;
+        // The menu has changed and the glass is behind. See DRAW_QUIET_MS.
+        let mut dirty = false;
         loop {
             let mut busy = false;
             bus.read(buttons::PCF8574_ADDR, &mut port)
@@ -457,21 +465,9 @@ fn main() -> ! {
                     }
                 }
                 if outcome.redraw {
-                    match menu.screen {
-                        // Leaving the menu puts the clock back, read fresh in case the window
-                        // crossed a minute.
-                        Screen::Home => {
-                            let now = now_minutes(&mut bus);
-                            face.show_clock(Standby {
-                                now_min: now,
-                                next: face_next,
-                                today,
-                                prayers_on: menu.settings.prayers_on,
-                                sleeping: false,
-                            });
-                        }
-                        _ => face.show_menu(&menu),
-                    }
+                    // Not drawn here: the refresh would blind the loop for a third of a second
+                    // and eat the next presses. It is drawn below, once the fingers stop.
+                    dirty = true;
                 }
                 busy = true;
             }
@@ -514,8 +510,30 @@ fn main() -> ! {
                 }
             }
             idle_ms = if busy { 0 } else { idle_ms + 20 };
+            // The one draw, now that nothing has been pressed for a moment. Leaving the menu puts
+            // the clock back, read fresh in case the presses crossed a minute.
+            if dirty && idle_ms >= DRAW_QUIET_MS {
+                let started = esp_hal::time::Instant::now();
+                match menu.screen {
+                    Screen::Home => {
+                        let now = now_minutes(&mut bus);
+                        shown_min = now;
+                        face.show_clock(Standby {
+                            now_min: now,
+                            next: face_next,
+                            today,
+                            prayers_on: menu.settings.prayers_on,
+                            sleeping: false,
+                        });
+                    }
+                    _ => face.show_menu(&menu),
+                }
+                info!("panel: drew in {} ms", started.elapsed().as_millis());
+                dirty = false;
+            }
             // Dev mode keeps the window open for the log; a hand's window closes after the idle
-            // time so the lamp goes back to saving its battery.
+            // time so the lamp goes back to saving its battery. Anything pending has been drawn by
+            // now: the quiet time is far shorter than the idle time.
             if !DEV_MODE && idle_ms >= buttons::IDLE_SLEEP_MS {
                 break;
             }
