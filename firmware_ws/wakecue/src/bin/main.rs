@@ -498,7 +498,7 @@ fn main() -> ! {
                     Stamp(now),
                     if sqw.is_high() { "high" } else { "low" }
                 );
-                if menu.screen == Screen::Home && now != shown_min {
+                if menu.screen == Screen::Home && now != shown_min && face.is_idle() {
                     shown_min = now;
                     face.show_clock(Standby {
                         now_min: now,
@@ -510,9 +510,12 @@ fn main() -> ! {
                 }
             }
             idle_ms = if busy { 0 } else { idle_ms + 20 };
-            // The one draw, now that nothing has been pressed for a moment. Leaving the menu puts
-            // the clock back, read fresh in case the presses crossed a minute.
-            if dirty && idle_ms >= DRAW_QUIET_MS {
+            // The one draw, now that nothing has been pressed for a moment and the glass is free.
+            // Leaving the menu puts the clock back, read fresh in case the presses crossed a
+            // minute. The refresh is only started: the next loop iteration reads the buttons again
+            // while the panel works, so a press never waits behind a refresh it could have been
+            // read before.
+            if dirty && idle_ms >= DRAW_QUIET_MS && face.is_idle() {
                 let started = esp_hal::time::Instant::now();
                 match menu.screen {
                     Screen::Home => {
@@ -528,7 +531,7 @@ fn main() -> ! {
                     }
                     _ => face.show_menu(&menu),
                 }
-                info!("panel: drew in {} ms", started.elapsed().as_millis());
+                info!("panel: pushed in {} ms", started.elapsed().as_millis());
                 dirty = false;
             }
             // Dev mode keeps the window open for the log; a hand's window closes after the idle

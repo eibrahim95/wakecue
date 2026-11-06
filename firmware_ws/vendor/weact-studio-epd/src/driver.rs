@@ -103,6 +103,9 @@ where
     /// Local patch, to go with the timeout in `wait_until_idle`.
     const BUSY_TIMEOUT_MS: u32 = 5_000;
 
+    /// How long to wait for the busy line to rise before deciding a refresh never started.
+    const BUSY_START_MS: u32 = 50;
+
     /// Create a new display driver.
     ///
     /// Use [`Self::init`] to initialize the display.
@@ -360,6 +363,26 @@ where
         Ok(())
     }
 
+    /// Waits, briefly, for the busy line to rise after a command that starts a refresh.
+    ///
+    /// Local patch, for [`Self::fast_update_finish`]: without it the wait that follows can run a
+    /// millisecond too early, see an idle panel, and write the next frame into a panel that has
+    /// already begun. Giving up after a few milliseconds is right — a refresh that never starts is
+    /// not one to wait for.
+    async fn wait_until_busy(&mut self) {
+        #[cfg(feature = "blocking")]
+        {
+            let mut waited_ms = 0u32;
+            while self.busy.is_low().unwrap_or(false) && waited_ms < Self::BUSY_START_MS {
+                self.delay.delay_ms(1);
+                waited_ms += 1;
+            }
+        }
+
+        #[cfg(not(feature = "blocking"))]
+        let _ = self.busy.wait_for_high().await;
+    }
+
     /// Sending a command and the data belonging to it.
     async fn command_with_data(&mut self, command: u8, data: &[u8]) -> Result<()> {
         self.command(command).await?;
@@ -401,6 +424,17 @@ where
     ///
     /// If the display hasn't done a [`Self::full_refresh`] yet, it will do that first.
     pub async fn fast_refresh(&mut self) -> Result<()> {
+        self.fast_refresh_start().await?;
+        self.wait_until_busy().await;
+        self.wait_until_idle().await
+    }
+
+    /// The first half of [`Self::fast_refresh`]: everything up to the command that starts the
+    /// glass working, and nothing that waits for it.
+    ///
+    /// Local patch, split out so a caller can keep doing its own work — reading buttons, in this
+    /// lamp — while the panel takes the better part of a second to finish.
+    async fn fast_refresh_start(&mut self) -> Result<()> {
         if !self.initial_full_refresh_done {
             // There a bug here which causes the new image to overwrite the existing image which then
             // fades out over several updates.
@@ -415,7 +449,6 @@ where
         self.command_with_data(command::UPDATE_DISPLAY_CTRL2, &[flag::UNDOCUMENTED])
             .await?;
         self.command(command::MASTER_ACTIVATE).await?;
-        self.wait_until_idle().await?;
         Ok(())
     }
 
@@ -431,11 +464,36 @@ where
 
     /// Update the screen with the provided full frame buffer using a fast refresh.
     pub async fn fast_update_from_buffer(&mut self, buffer: &[u8]) -> Result<()> {
+        self.fast_update_start(buffer).await?;
+        self.fast_update_finish(buffer).await
+    }
+
+    /// Write the frame and start the refresh, without waiting for the glass to finish.
+    ///
+    /// Local patch. [`Self::fast_update_from_buffer`] holds the caller for the whole refresh —
+    /// most of a second on this panel — which is exactly what a caller with buttons to read cannot
+    /// afford. Between this and [`Self::fast_update_finish`] no other command may be sent: the
+    /// panel is busy and would not hear it.
+    pub async fn fast_update_start(&mut self, buffer: &[u8]) -> Result<()> {
         self.write_bw_buffer(buffer).await?;
-        self.fast_refresh().await?;
+        self.fast_refresh_start().await
+    }
+
+    /// Wait for the refresh started above, then leave both RAMs holding the frame just drawn, so
+    /// the next update diffs against what is actually on the glass.
+    pub async fn fast_update_finish(&mut self, buffer: &[u8]) -> Result<()> {
+        // The busy line takes a moment to rise after the command; waiting for it first is what
+        // stops the trailing writes racing the start of the refresh.
+        self.wait_until_busy().await;
+        self.wait_until_idle().await?;
         self.write_red_buffer(buffer).await?;
         self.write_bw_buffer(buffer).await?;
         Ok(())
+    }
+
+    /// Whether the glass is still working on a refresh.
+    pub fn is_busy(&mut self) -> bool {
+        self.busy.is_high().unwrap_or(true)
     }
 
     /// Update the screen with the provided partial frame buffer at the given position using a fast refresh.

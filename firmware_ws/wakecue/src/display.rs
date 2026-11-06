@@ -106,6 +106,8 @@ pub struct Face {
     fast: bool,
     /// False when the panel never answered; drawing is then a no-op.
     ready: bool,
+    /// The glass is still working on the frame that was last pushed.
+    pending: bool,
 }
 
 impl Face {
@@ -142,6 +144,7 @@ impl Face {
             },
             fast: fast && ready,
             ready,
+            pending: false,
         }
     }
 
@@ -158,6 +161,7 @@ impl Face {
         if !self.ready {
             return;
         }
+        self.settle();
 
         // The clock keeps UTC; the face shows the time on the wall.
         let local = utc_to_egypt(s.now_min);
@@ -263,6 +267,7 @@ impl Face {
         if !self.ready {
             return;
         }
+        self.settle();
         let local = utc_to_egypt(at);
         let mut time_buf = [0u8; HHMM12_LEN];
         let time = format_hhmm12(local, &mut time_buf);
@@ -296,6 +301,7 @@ impl Face {
         if !self.ready {
             return;
         }
+        self.settle();
         let frame = &mut self.frame;
         frame.clear(Color::White);
         let small = MonoTextStyle::new(&FONT_6X10, Color::Black);
@@ -417,21 +423,59 @@ impl Face {
 
     /// Send whatever is in the frame buffer to the glass: the full refresh only for the first draw
     /// of a cold boot, the quiet one after that.
+    ///
+    /// A fast refresh is only *started* here. The panel takes the better part of a second over it,
+    /// and the caller has buttons to read in the meantime; [`Self::settle`] finishes it before the
+    /// buffer is next changed.
     fn push(&mut self) {
-        let refreshed = if self.fast {
-            self.driver.fast_update(&self.frame)
-        } else {
-            self.driver.full_update(&self.frame)
-        };
-        if let Err(e) = refreshed {
-            defmt::info!("panel: refresh failed: {:?}", defmt::Debug2Format(&e));
+        self.settle();
+        if !self.ready {
+            return;
         }
-        // The glass now holds this image, so the next draw can take the diff against it.
-        self.fast = true;
+        if self.fast {
+            match self.driver.fast_update_start(self.frame.buffer()) {
+                Ok(()) => self.pending = true,
+                Err(e) => {
+                    defmt::info!("panel: refresh failed: {:?}", defmt::Debug2Format(&e));
+                    self.ready = false;
+                }
+            }
+        } else {
+            // The first draw of a cold boot is a full refresh, and there is nothing else to do
+            // while it strobes.
+            match self.driver.full_update(&self.frame) {
+                Ok(()) => self.fast = true,
+                Err(e) => {
+                    defmt::info!("panel: refresh failed: {:?}", defmt::Debug2Format(&e));
+                    self.ready = false;
+                }
+            }
+        }
+    }
+
+    /// False while the glass is still catching up with the last frame. A caller that has keys to
+    /// read asks this and comes back later, instead of waiting inside a refresh and missing them.
+    pub fn is_idle(&mut self) -> bool {
+        !self.ready || !self.driver.is_busy()
+    }
+
+    /// Finish a refresh that is still running, with the image it drew. It has to happen before the
+    /// frame buffer is changed: the driver leaves that image in the panel's own RAMs, and the next
+    /// update diffs against it.
+    fn settle(&mut self) {
+        if !self.pending {
+            return;
+        }
+        self.pending = false;
+        if let Err(e) = self.driver.fast_update_finish(self.frame.buffer()) {
+            defmt::info!("panel: could not finish a refresh: {:?}", defmt::Debug2Format(&e));
+            self.ready = false;
+        }
     }
 
     /// Send the panel into its deep sleep, which keeps the last image with no power at all.
     pub fn finish(mut self) {
+        self.settle();
         if self.ready && self.driver.sleep().is_err() {
             defmt::info!("panel: could not be put to sleep");
         }

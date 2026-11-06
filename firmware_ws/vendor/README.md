@@ -29,5 +29,17 @@ log, until the power was pulled. It now gives up after `BUSY_TIMEOUT_MS` (five s
 against a two-second full refresh) and returns `DisplayError::BusWriteError`, which the
 lamp logs as `panel: refresh failed` and carries on from. Every call site propagates it.
 
+### 3. a fast update can be started and finished separately
+
+`src/driver.rs`: `fast_update_from_buffer` held the caller for the whole refresh, which
+on this glass is **778 ms** — measured by the lamp itself. A caller with buttons to read
+cannot afford that: the lamp's key loop went blind for four presses out of five. The
+work is now split into `fast_update_start` (write the frame, start the glass) and
+`fast_update_finish` (wait for it, leave both RAMs holding the drawn image), with
+`fast_update_from_buffer` still doing both for anyone who wants the old behaviour. Two
+helpers came with it: `is_busy()` so a caller can ask instead of wait, and
+`wait_until_busy()`, which closes the race where the idle wait runs before the panel has
+asserted busy.
+
 `weact-studio-epd` is MIT OR Apache-2.0, © Alexander van Saase. If upstream grows an
 equivalent switch and a timeout, drop this copy and the `[patch.crates-io]` block.
