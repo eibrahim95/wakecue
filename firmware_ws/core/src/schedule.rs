@@ -42,12 +42,16 @@ pub enum When {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
-    /// Ring ramps for `ramp_min` minutes and finishes at the rule's time.
+    /// The lamp comes up over `ramp_min` minutes, finishing at the rule's time. It is the light
+    /// half of any alarm, a prayer's or the lamp's own.
     Sunrise { ramp_min: u16 },
+    /// A prayer's sound: a track on the card, at the prayer's own time.
     Play { track: u16, volume: u8, fade_in_s: u16 },
     LampOn,
     LampOff,
-    Alarm,
+    /// A user alarm. `sound` is the block's tone index; which file that becomes is the card's
+    /// business, and the panel is what rings until the card is wired.
+    Alarm { sound: u8 },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -193,7 +197,7 @@ mod tests {
     const RULES: [Rule; 3] = [
         Rule { days: ALL_DAYS, when: When::Prayer(Prayer::Fajr, 0), action: Action::Sunrise { ramp_min: 15 } },
         Rule { days: ALL_DAYS, when: When::Prayer(Prayer::Fajr, 0), action: Action::Play { track: 1, volume: 20, fade_in_s: 60 } },
-        Rule { days: 0b0001_1111, when: When::Local(7 * 60 + 30), action: Action::Alarm },
+        Rule { days: 0b0001_1111, when: When::Local(7 * 60 + 30), action: Action::Alarm { sound: 0 } },
     ];
 
     #[test]
@@ -269,13 +273,13 @@ mod tests {
 
         // 07:30 Egypt on Sunday 25 Oct is still summer time (UTC+3) = 04:30 UTC.
         let e = next_event(e.utc_min + 1, &RULES, &t).unwrap();
-        assert_eq!(e, Event { utc_min: base + 4 * 60 + 30, action: Action::Alarm });
+        assert_eq!(e, Event { utc_min: base + 4 * 60 + 30, action: Action::Alarm { sound: 0 } });
     }
 
     #[test]
     fn local_alarm_follows_the_clock_across_the_end_of_summer_time() {
         // Fri 30 Oct 2026 is winter time: 07:30 local = 05:30 UTC. Thursday 29 Oct is still summer: 04:30 UTC.
-        let rules = [Rule { days: ALL_DAYS, when: When::Local(7 * 60 + 30), action: Action::Alarm }];
+        let rules = [Rule { days: ALL_DAYS, when: When::Local(7 * 60 + 30), action: Action::Alarm { sound: 0 } }];
         let thu = days_from_civil(2026, 10, 29);
         let t = Fake { first_day: 0, data: &[] };
         let e = next_event(thu as i64 * 1440, &rules, &t).unwrap();
@@ -287,7 +291,7 @@ mod tests {
     #[test]
     fn day_mask_skips_friday_and_saturday() {
         // Sun-Thu only: after Thursday's alarm the next is Sunday's, three days later.
-        let rules = [Rule { days: 0b0001_1111, when: When::Local(7 * 60 + 30), action: Action::Alarm }];
+        let rules = [Rule { days: 0b0001_1111, when: When::Local(7 * 60 + 30), action: Action::Alarm { sound: 0 } }];
         let thu = days_from_civil(2026, 1, 8); // winter
         assert_eq!(weekday(thu), 4);
         let t = Fake { first_day: 0, data: &[] };
@@ -303,19 +307,19 @@ mod tests {
         let mut b = [0u8; 50];
         let t = table(&mut b, d, [190; 5]); // Dhuhr 290, Asr 390, Maghrib 490, Isha 590 UTC
         let rules = [
-            Rule { days: ALL_DAYS, when: When::Prayer(Prayer::Asr, 0), action: Action::Alarm },
+            Rule { days: ALL_DAYS, when: When::Prayer(Prayer::Asr, 0), action: Action::Alarm { sound: 0 } },
             Rule { days: ALL_DAYS, when: When::Prayer(Prayer::Isha, -10), action: Action::LampOn },
         ];
         let base = d as i64 * 1440;
         let e = next_event(base, &rules, &t).unwrap();
-        assert_eq!(e, Event { utc_min: base + 390, action: Action::Alarm });
+        assert_eq!(e, Event { utc_min: base + 390, action: Action::Alarm { sound: 0 } });
         let e = next_event(e.utc_min + 1, &rules, &t).unwrap();
         assert_eq!(e, Event { utc_min: base + 580, action: Action::LampOn });
     }
 
     #[test]
     fn no_events_when_there_are_no_prayer_times_and_only_fajr_rules() {
-        let rules = [Rule { days: ALL_DAYS, when: When::Prayer(Prayer::Fajr, 0), action: Action::Alarm }];
+        let rules = [Rule { days: ALL_DAYS, when: When::Prayer(Prayer::Fajr, 0), action: Action::Alarm { sound: 0 } }];
         let t = Fake { first_day: 0, data: &[] };
         assert_eq!(next_event(20454 * 1440, &rules, &t), None);
     }

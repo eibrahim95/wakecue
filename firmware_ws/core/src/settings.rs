@@ -35,7 +35,7 @@
 //!   139     1  high latitude rule
 //!   140     1  prayers that ring, a bit per prayer
 //!   141     5  minutes to shift each prayer by
-//!   146     1  Fajr ramp, minutes
+//!   146     1  light ramp before an alarm, minutes
 //!   147     1  adhan volume
 //!   148     1  adhan fade-in, seconds
 //!   149    40  eight alarms, 5 bytes each
@@ -51,8 +51,9 @@ use crate::calendar::{egypt_offset_min, utc_to_egypt, weekday};
 use crate::schedule::{Action, Prayer, Rule, When, ALL_DAYS};
 
 pub const MAX_USER_ALARMS: usize = 8;
-/// Fajr gives two rules (ramp and sound), the other prayers one each, plus the user alarms.
-pub const MAX_RULES: usize = 2 + 4 + MAX_USER_ALARMS;
+/// Every event that rings gets two rules, the light ramp before it and its sound at it: five
+/// prayers and every slot in the alarm list.
+pub const MAX_RULES: usize = 2 * (Prayer::ALL.len() + MAX_USER_ALARMS);
 
 /// The block lives in two sectors of the 24 KB `nvs` partition. Nothing in this build uses NVS and
 /// espflash puts the application at 0x10000, so these sectors are ours alone.
@@ -274,7 +275,7 @@ pub struct Settings {
     pub prayers_on: u8,
     /// Minutes each prayer is shifted by, so the lamp can be matched to the local mosque.
     pub offset_min: [i8; 5],
-    pub fajr_ramp_min: u8,
+    pub ramp_min: u8,
     pub adhan_volume: u8,
     pub adhan_fade_in_s: u8,
     pub alarms: [UserAlarm; MAX_USER_ALARMS],
@@ -286,8 +287,10 @@ pub struct Settings {
 }
 
 impl Default for Settings {
-    /// Fajr only, and Cairo: the first lamp is for one house, and a first boot that shows plausible
-    /// times is friendlier than one that shows zeroes. The setup flow replaces the place.
+    /// Fajr on, and Cairo: the defaults belong to the first house, not to the product. A first boot
+    /// that shows plausible times and rings once at dawn is friendlier than one that does nothing;
+    /// the other four prayers and all eight alarms are one switch away, and the setup flow replaces
+    /// the place.
     fn default() -> Self {
         Settings {
             setup: Setup::NONE,
@@ -305,7 +308,7 @@ impl Default for Settings {
             high_lat: HighLat::None,
             prayers_on: 1,
             offset_min: [0; 5],
-            fajr_ramp_min: 15,
+            ramp_min: 15,
             adhan_volume: 22,
             adhan_fade_in_s: 30,
             alarms: [UserAlarm::EMPTY; MAX_USER_ALARMS],
@@ -397,8 +400,12 @@ impl Settings {
         None
     }
 
-    /// Fills `out` with the rules the schedule should run and returns how many. Prayer sounds are
-    /// tracks 1..=5 (`/mp3/0001.mp3` is Fajr); Fajr also gets the sunrise ramp before it.
+    /// Fills `out` with the rules the schedule should run and returns how many.
+    ///
+    /// Every event that rings is built the same way: the light comes up over `ramp_min` minutes and
+    /// the sound arrives at the event's own time. A prayer's sound is its track (1..=5, so
+    /// `/mp3/0001.mp3` is Fajr) at the stored volume and fade; one of the lamp's own alarms carries
+    /// the tone it was given. Nothing here is Fajr's besides its place in the day.
     pub fn rules(&self, out: &mut [Rule; MAX_RULES]) -> usize {
         let mut n = 0;
         let mut push = |r: Rule| {
@@ -410,26 +417,38 @@ impl Settings {
                 continue;
             }
             let shift = self.offset_min[p.index()] as i16;
-            if p == Prayer::Fajr {
+            // A zero ramp is no ramp: emitting a rule at the same minute as the sound would make
+            // the schedule pick the light and step over the sound.
+            if self.ramp_min > 0 {
                 push(Rule {
                     days: ALL_DAYS,
                     when: When::Prayer(p, shift),
-                    action: Action::Sunrise { ramp_min: self.fajr_ramp_min as u16 },
+                    action: Action::Sunrise { ramp_min: self.ramp_min as u16 },
                 });
             }
-            let fade_in_s = if p == Prayer::Fajr { self.adhan_fade_in_s as u16 } else { 20 };
             push(Rule {
                 days: ALL_DAYS,
                 when: When::Prayer(p, shift),
                 action: Action::Play {
                     track: p.index() as u16 + 1,
                     volume: self.adhan_volume,
-                    fade_in_s,
+                    fade_in_s: self.adhan_fade_in_s as u16,
                 },
             });
         }
         for a in self.alarms.iter().filter(|a| a.used && a.enabled) {
-            push(Rule { days: a.days, when: When::Local(a.minute), action: Action::Alarm });
+            if self.ramp_min > 0 {
+                push(Rule {
+                    days: a.days,
+                    when: When::Local(a.minute),
+                    action: Action::Sunrise { ramp_min: self.ramp_min as u16 },
+                });
+            }
+            push(Rule {
+                days: a.days,
+                when: When::Local(a.minute),
+                action: Action::Alarm { sound: a.sound },
+            });
         }
         n
     }
@@ -470,7 +489,7 @@ impl Stored {
         for (i, v) in s.offset_min.iter().enumerate() {
             p[po::OFFSETS + i] = *v as u8;
         }
-        p[po::RAMP] = s.fajr_ramp_min;
+        p[po::RAMP] = s.ramp_min;
         p[po::VOLUME] = s.adhan_volume;
         p[po::FADE] = s.adhan_fade_in_s;
         for (i, a) in s.alarms.iter().enumerate() {
@@ -561,10 +580,10 @@ impl Stored {
             *o = v;
         }
 
-        let fajr_ramp_min = p[po::RAMP];
+        let ramp_min = p[po::RAMP];
         let adhan_volume = p[po::VOLUME];
         let adhan_fade_in_s = p[po::FADE];
-        if fajr_ramp_min > 120 || adhan_volume > 100 || !(0..=120).contains(&adhan_fade_in_s) {
+        if ramp_min > 120 || adhan_volume > 100 || !(0..=120).contains(&adhan_fade_in_s) {
             return None;
         }
 
@@ -624,7 +643,7 @@ impl Stored {
                 high_lat,
                 prayers_on,
                 offset_min,
-                fajr_ramp_min,
+                ramp_min,
                 adhan_volume,
                 adhan_fade_in_s,
                 alarms,
@@ -745,7 +764,7 @@ mod tests {
 
     #[test]
     fn default_is_fajr_only_with_ramp_and_sound() {
-        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm }; MAX_RULES];
+        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm { sound: 0 } }; MAX_RULES];
         let n = Settings::default().rules(&mut out);
         assert_eq!(n, 2);
         assert!(matches!(out[0].action, Action::Sunrise { ramp_min: 15 }));
@@ -755,22 +774,76 @@ mod tests {
     }
 
     #[test]
+    fn every_prayer_rings_the_same_way() {
+        // The old code ramped only before Fajr and gave the other four a hardcoded fade; nothing
+        // about a prayer's rules should depend on which prayer it is.
+        let mut s = Settings { prayers_on: 0b1_1111, adhan_fade_in_s: 45, ..Settings::default() };
+        s.ramp_min = 20;
+        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm { sound: 0 } }; MAX_RULES];
+        assert_eq!(s.rules(&mut out), 10);
+        // Dhuhr is the second prayer, so its ramp is rule 2 and its sound rule 3.
+        assert!(matches!(out[2].action, Action::Sunrise { ramp_min: 20 }));
+        assert!(matches!(out[3].action, Action::Play { track: 2, volume: 22, fade_in_s: 45 }));
+        // Isha, the last one, is built the same way.
+        assert!(matches!(out[8].action, Action::Sunrise { ramp_min: 20 }));
+        assert!(matches!(out[9].action, Action::Play { track: 5, volume: 22, fade_in_s: 45 }));
+    }
+
+    #[test]
+    fn an_alarm_is_built_like_a_prayer_ramp_then_sound() {
+        // The lamp's own alarm is not a second-class rule: the light comes up before it and the
+        // tone its slot carries arrives at its minute, as a prayer's do.
+        let mut s = Settings::default();
+        s.alarms[2] = UserAlarm {
+            used: true,
+            enabled: true,
+            days: ALL_DAYS,
+            minute: 6 * 60 + 30,
+            sound: 2,
+        };
+        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm { sound: 0 } }; MAX_RULES];
+        // Fajr is on by default, so its two rules come first, then the alarm's two.
+        assert_eq!(s.rules(&mut out), 4);
+        assert_eq!(out[2].when, When::Local(6 * 60 + 30));
+        assert_eq!(out[2].days, ALL_DAYS);
+        assert!(matches!(out[2].action, Action::Sunrise { ramp_min: 15 }));
+        assert_eq!(out[3].when, When::Local(6 * 60 + 30));
+        assert!(matches!(out[3].action, Action::Alarm { sound: 2 }));
+    }
+
+    #[test]
     fn all_prayers_and_all_alarms_fit_the_rule_buffer() {
         let mut s = Settings { prayers_on: 0b1_1111, ..Settings::default() };
         for a in s.alarms.iter_mut() {
             *a = UserAlarm { used: true, enabled: true, days: SUN_TO_THU, ..UserAlarm::EMPTY };
         }
-        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm }; MAX_RULES];
+        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm { sound: 0 } }; MAX_RULES];
         assert_eq!(s.rules(&mut out), MAX_RULES);
-        assert!(matches!(out[5].action, Action::Play { track: 5, .. })); // Isha is track 5
-        assert!(matches!(out[6].action, Action::Alarm));
+        // Two rules per prayer: Isha's sound is the tenth, so track 5.
+        assert!(matches!(out[9].action, Action::Play { track: 5, .. }));
+        // Then the first alarm's ramp and its sound.
+        assert!(matches!(out[10].action, Action::Sunrise { .. }));
+        assert!(matches!(out[11].action, Action::Alarm { sound: 0 }));
+    }
+
+    #[test]
+    fn a_zero_ramp_leaves_only_the_sounds() {
+        // At the same minute, the light rule would be found first and the sound stepped over; a
+        // lamp with no ramp must emit no light rule at all.
+        let mut s = Settings::default();
+        s.ramp_min = 0;
+        s.alarms[0] = UserAlarm { used: true, enabled: true, days: ALL_DAYS, minute: 400, ..UserAlarm::EMPTY };
+        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm { sound: 0 } }; MAX_RULES];
+        assert_eq!(s.rules(&mut out), 2);
+        assert!(matches!(out[0].action, Action::Play { track: 1, .. }));
+        assert!(matches!(out[1].action, Action::Alarm { sound: 0 }));
     }
 
     #[test]
     fn disabled_and_unused_alarms_make_no_rules() {
         let mut s = Settings::default();
         s.alarms[0] = UserAlarm { used: true, enabled: false, minute: 400, ..UserAlarm::EMPTY };
-        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm }; MAX_RULES];
+        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm { sound: 0 } }; MAX_RULES];
         assert_eq!(s.rules(&mut out), 2);
     }
 
@@ -825,8 +898,8 @@ mod tests {
     fn a_prayer_shift_reaches_its_rule() {
         let mut s = Settings::default();
         s.offset_min[Prayer::Fajr.index()] = -30;
-        s.fajr_ramp_min = 20;
-        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm }; MAX_RULES];
+        s.ramp_min = 20;
+        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm { sound: 0 } }; MAX_RULES];
         assert_eq!(s.rules(&mut out), 2);
         assert!(matches!(out[0].when, When::Prayer(Prayer::Fajr, -30)));
         assert!(matches!(out[0].action, Action::Sunrise { ramp_min: 20 }));
@@ -879,7 +952,7 @@ mod tests {
         s.asr_shadow = 2;
         s.high_lat = HighLat::Seventh;
         s.offset_min = [1, -1, 2, -2, 0];
-        s.fajr_ramp_min = 20;
+        s.ramp_min = 20;
         s.adhan_volume = 44;
         s.adhan_fade_in_s = 60;
         s.alarms[0] =

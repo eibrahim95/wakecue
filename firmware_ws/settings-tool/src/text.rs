@@ -26,7 +26,7 @@ const HEADER: &str = "\
 #   high_lat      none | middle | seventh | angle
 #   prayers       all | none | a list like fajr,dhuhr
 #   offset_x      minutes to shift a prayer, so the lamp matches the local mosque
-#   ramp          minutes the light takes to come up before Fajr
+#   ramp          minutes the light takes to come up before any alarm
 #   volume, fade  adhan volume in percent, and seconds it takes to reach it
 #   brightness    percent at full, and night percent
 #   clock         12 or 24
@@ -132,7 +132,7 @@ fn apply_one(s: &mut Settings, l: &Line) -> Result<(), String> {
         "offset_asr" => s.offset_min[2] = i8_of(l, 120)?,
         "offset_maghrib" => s.offset_min[3] = i8_of(l, 120)?,
         "offset_isha" => s.offset_min[4] = i8_of(l, 120)?,
-        "ramp" => s.fajr_ramp_min = u8_of(l, 120)?,
+        "ramp" => s.ramp_min = u8_of(l, 120)?,
         "volume" => s.adhan_volume = u8_of(l, 100)?,
         "fade" => s.adhan_fade_in_s = u8_of(l, 120)?,
         "brightness" => s.brightness_max = u8_of(l, 100)?,
@@ -230,7 +230,7 @@ pub fn dump(s: &Settings) -> String {
     for (i, p) in Prayer::ALL.iter().enumerate() {
         o.push_str(&format!("offset_{} = {}\n", p.name().to_ascii_lowercase(), s.offset_min[i]));
     }
-    o.push_str(&format!("ramp = {}\n", s.fajr_ramp_min));
+    o.push_str(&format!("ramp = {}\n", s.ramp_min));
     o.push_str(&format!("volume = {}\n", s.adhan_volume));
     o.push_str(&format!("fade = {}\n", s.adhan_fade_in_s));
     o.push_str(&format!("brightness = {}\n", s.brightness_max));

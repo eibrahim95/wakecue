@@ -348,7 +348,7 @@ fn main() -> ! {
                 Stamp(utc_to_egypt(due.utc_min))
             );
             from = due.utc_min + 1;
-            if matches!(due.action, Action::Play { .. } | Action::Alarm) {
+            if matches!(due.action, Action::Play { .. } | Action::Alarm { .. }) {
                 alarm = Some((due.utc_min, due.action));
             }
         }
