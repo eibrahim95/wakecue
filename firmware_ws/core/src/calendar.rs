@@ -159,9 +159,55 @@ pub fn format_date(min: i64, buf: &mut [u8; DATE_LEN]) -> &str {
     core::str::from_utf8(&buf[..n]).unwrap_or("")
 }
 
+/// Width of the longest text `format_countdown` writes, `in 13h57m`.
+pub const COUNTDOWN_LEN: usize = 13;
+
+/// How long until a prayer, as the face says it: `in 25 min`, `in 13h57m`, or `now`.
+///
+/// Past an hour the form goes compact because the face's next-prayer line shares its width with the
+/// prayer's name, a `tomorrow` and the meridiem.
+pub fn format_countdown(mins: i64, buf: &mut [u8; COUNTDOWN_LEN]) -> &str {
+    let m = mins.max(0) as u32;
+    let mut n = 0;
+    if m == 0 {
+        append(buf, &mut n, "now");
+    } else if m < 60 {
+        append(buf, &mut n, "in ");
+        let w = if m < 10 { 1 } else { 2 };
+        put(buf, n, w, m);
+        n += w;
+        append(buf, &mut n, " min");
+    } else {
+        append(buf, &mut n, "in ");
+        let h = m / 60;
+        let w = if h < 10 { 1 } else { 2 };
+        put(buf, n, w, h);
+        n += w;
+        buf[n] = b'h';
+        n += 1;
+        put(buf, n, 2, m % 60);
+        n += 2;
+        buf[n] = b'm';
+        n += 1;
+    }
+    core::str::from_utf8(&buf[..n]).unwrap_or("")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn countdown_reads_like_a_clock() {
+        let mut b = [0u8; COUNTDOWN_LEN];
+        assert_eq!(format_countdown(0, &mut b), "now");
+        assert_eq!(format_countdown(-3, &mut b), "now");
+        assert_eq!(format_countdown(1, &mut b), "in 1 min");
+        assert_eq!(format_countdown(25, &mut b), "in 25 min");
+        assert_eq!(format_countdown(59, &mut b), "in 59 min");
+        assert_eq!(format_countdown(60, &mut b), "in 1h00m");
+        assert_eq!(format_countdown(837, &mut b), "in 13h57m");
+    }
 
     #[test]
     fn known_day_numbers() {

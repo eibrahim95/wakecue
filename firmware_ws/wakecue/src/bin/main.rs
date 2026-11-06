@@ -26,7 +26,7 @@ use lamp_core::menu::{Menu, Screen};
 use lamp_core::settings::{
     MAX_RULES, READ_LEN, Sector, Settings, Stored, SECTOR_A, SECTOR_B, SECTOR_LEN, STORED_LEN,
 };
-use wakecue::display::{Face, PanelBus};
+use wakecue::display::{Face, PanelBus, Standby};
 
 /// Bench switch. `true` runs the whole boot — clock, schedule, alarm, face — and then stays
 /// awake instead of sleeping, so the USB port stays up and the log keeps running. A sleeping
@@ -225,6 +225,8 @@ fn main() -> ! {
     // The prayer the face names, decided below; `None` means the clock cannot be trusted, so the
     // face says that instead of naming one.
     let mut face_next: Option<(i64, Prayer)> = None;
+    // Today's five prayers as local minutes, for the strip along the bottom of the face.
+    let mut today: [Option<i64>; 5] = [None; 5];
     if osf {
         // There is no Wi-Fi and no settings page in this crate yet, so the time cannot be
         // fetched. Keep waking once a minute rather than parking the lamp on a clock it
@@ -241,6 +243,7 @@ fn main() -> ! {
         // The face names the next prayer of the five, whatever the switches say: it is a clock,
         // and the schedule below only answers "what will the lamp act on".
         face_next = schedule::next_prayer(now_min, &prayers);
+        today = schedule::local_times(now_min, &prayers);
 
         // Anything whose time has arrived is this boot's job. The alarm fired, so the event
         // is at or before now; after running it, look again from the following minute.
@@ -275,7 +278,13 @@ fn main() -> ! {
     let mut face = Face::new(PanelBus::new(spi, dc), busy, rst, woken);
     // Asleep unless a hand woke the lamp: the corner mark is what the lamp shows while it is
     // down, and it comes off for as long as somebody is standing in front of it.
-    face.show_clock(now_min, face_next, !by_hand);
+    face.show_clock(Standby {
+        now_min,
+        next: face_next,
+        today,
+        prayers_on: settings.prayers_on,
+        sleeping: !by_hand,
+    });
 
     // The lamp redraws every minute, so the alarm is always the next minute; what is due is found
     // by the check above on whichever boot lands on it.
@@ -333,7 +342,13 @@ fn main() -> ! {
                 );
                 if now != shown_min {
                     shown_min = now;
-                    face.show_clock(now, face_next, false);
+                    face.show_clock(Standby {
+                        now_min: now,
+                        next: face_next,
+                        today,
+                        prayers_on: settings.prayers_on,
+                        sleeping: false,
+                    });
                 }
             }
             delay.delay_millis(20);
@@ -386,7 +401,13 @@ fn main() -> ! {
                         // crossed a minute.
                         Screen::Home => {
                             let now = now_minutes(&mut bus);
-                            face.show_clock(now, face_next, false);
+                            face.show_clock(Standby {
+                                now_min: now,
+                                next: face_next,
+                                today,
+                                prayers_on: menu.settings.prayers_on,
+                                sleeping: false,
+                            });
                         }
                         _ => face.show_menu(&menu),
                     }
@@ -417,7 +438,13 @@ fn main() -> ! {
         // The window may have crossed a minute, and the alarm was armed before it. Redraw with
         // the corner mark on, so the last thing on the glass is the lamp going back to sleep.
         let later = now_minutes(&mut bus);
-        face.show_clock(later, face_next, true);
+        face.show_clock(Standby {
+            now_min: later,
+            next: face_next,
+            today,
+            prayers_on: menu.settings.prayers_on,
+            sleeping: true,
+        });
         wakes_at = arm_next_minute(&mut bus, later);
     }
 

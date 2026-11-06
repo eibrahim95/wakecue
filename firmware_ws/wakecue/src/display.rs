@@ -8,13 +8,14 @@ use display_interface::{DataFormat, DisplayError, WriteOnlyDataCommand};
 use embedded_graphics::mono_font::MonoTextStyle;
 use embedded_graphics::mono_font::ascii::{FONT_6X10, FONT_10X20};
 use embedded_graphics::prelude::*;
-use embedded_graphics::primitives::{Line, PrimitiveStyle, Rectangle};
+use embedded_graphics::primitives::{Circle, Line, PrimitiveStyle, Rectangle};
 use embedded_graphics::text::Text;
 use esp_hal::delay::Delay;
 use esp_hal::gpio::{Input, Output};
 use esp_hal::spi::master::Spi;
 use lamp_core::calendar::{
-    DATE_LEN, HHMM12_LEN, format_date, format_hhmm12, meridiem, utc_to_egypt,
+    COUNTDOWN_LEN, DATE_LEN, HHMM12_LEN, format_countdown, format_date, format_hhmm12, meridiem,
+    utc_to_egypt,
 };
 use lamp_core::menu::{Field, Menu, Screen, day_name};
 use lamp_core::schedule::Prayer;
@@ -28,6 +29,36 @@ use weact_studio_epd::{Color, WeActStudio213BlackWhiteDriver};
 /// 250 wide by 128 tall, matching the window in the base; if the face lands upside down, this
 /// is the line to change to `Rotate270`.
 const ROTATION: DisplayRotation = DisplayRotation::Rotate90;
+
+/// What the standby face says. The boot has the prayer table and the settings, so it decides this;
+/// the face only lays it out.
+#[derive(Clone, Copy)]
+pub struct Standby {
+    /// The clock's minute count, UTC.
+    pub now_min: i64,
+    /// The next prayer and its time in UTC minutes, or `None` when the clock cannot be trusted.
+    pub next: Option<(i64, Prayer)>,
+    /// Today's five prayers as local minutes after midnight, `None` where the table ends.
+    pub today: [Option<i64>; 5],
+    /// Which prayers ring, a bit per prayer in [`Prayer::ALL`] order.
+    pub prayers_on: u8,
+    /// The lamp is about to go back down: draw the corner mark.
+    pub sleeping: bool,
+}
+
+/// Width of the text [`hhmm12_short`] writes, `12:45p`.
+const SHORT_LEN: usize = HHMM12_LEN + 1;
+
+/// [`format_hhmm12`] with the meridiem cut to one letter, which is all a fifty-pixel column has
+/// room for. The next-prayer line above spells it out in full.
+fn hhmm12_short(min: i64, buf: &mut [u8; SHORT_LEN]) -> &str {
+    let mut digits = [0u8; HHMM12_LEN];
+    let s = format_hhmm12(min, &mut digits);
+    let n = s.len();
+    buf[..n].copy_from_slice(s.as_bytes());
+    buf[n] = if meridiem(min) == "AM" { b'a' } else { b'p' };
+    core::str::from_utf8(&buf[..n + 1]).unwrap_or("")
+}
 
 /// Write-only SPI with the data/command line: low sends a command, high sends data.
 pub struct PanelBus<'d> {
@@ -114,17 +145,22 @@ impl Face {
         }
     }
 
-    /// Draw the standby face — Cairo time, the date, and the next prayer — and push it to the
-    /// glass. `next` is the prayer and its time in UTC minutes, or `None` when the clock's time
-    /// cannot be trusted, in which case the face says so instead of naming a prayer. `sleeping`
-    /// puts the corner mark on, saying the lamp is about to go back down.
-    pub fn show_clock(&mut self, now_min: i64, next: Option<(i64, Prayer)>, sleeping: bool) {
+    /// Draw the standby face and push it to the glass: the time on the wall, the date, what rings
+    /// next and how long that is, and today's five prayers with a filled dot on the ones that
+    /// ring.
+    ///
+    /// Every mark stays inside x 10..240 and y 6..115 of the 250 by 128 drawing area. The glass is
+    /// 250 by 122 behind a 128-row buffer and which six rows or columns are hidden has not been
+    /// measured, so the layout keeps a six-pixel margin all round: whichever edge it turns out to
+    /// be, it cannot eat a glyph. The menu still draws its border at the very edge, and that is now
+    /// the thing that answers the question.
+    pub fn show_clock(&mut self, s: Standby) {
         if !self.ready {
             return;
         }
 
         // The clock keeps UTC; the face shows the time on the wall.
-        let local = utc_to_egypt(now_min);
+        let local = utc_to_egypt(s.now_min);
         let mut time_buf = [0u8; HHMM12_LEN];
         let mut date_buf = [0u8; DATE_LEN];
         let time = format_hhmm12(local, &mut time_buf);
@@ -136,68 +172,85 @@ impl Face {
         let small = MonoTextStyle::new(&FONT_6X10, Color::Black);
         let rule = PrimitiveStyle::with_stroke(Color::Black, 1);
 
-        let _ = Text::new(time, Point::new(14, 46), big).draw(frame);
-        // AM/PM rides beside the big time in the small font, both bottom-aligned on y = 46; FONT_10X20
-        // advances ten pixels a character, so the two never touch.
+        let _ = Text::new(time, Point::new(14, 44), big).draw(frame);
+        // AM/PM rides beside the big time in the small font, both bottom-aligned on y = 44;
+        // FONT_10X20 advances ten pixels a character, so the two never touch.
         let ampm_x = 14 + time.len() as i32 * 10 + 6;
-        let _ = Text::new(meridiem(local), Point::new(ampm_x, 46), small).draw(frame);
-        // Two borders, to measure what the glass will actually show. The drawing area is 250 by
-        // 128, but the panel is 122 rows visible behind a 128-row buffer: a border at the very
-        // edge and another six pixels in make it obvious which edge is the one that disappears.
-        let _ = Rectangle::new(Point::new(0, 0), Size::new(250, 128))
-            .into_styled(rule)
-            .draw(frame);
-        let _ = Rectangle::new(Point::new(6, 6), Size::new(238, 116))
-            .into_styled(rule)
-            .draw(frame);
-        let _ = Line::new(Point::new(14, 60), Point::new(236, 60))
-            .into_styled(rule)
-            .draw(frame);
-        let _ = Text::new(date, Point::new(14, 84), small).draw(frame);
+        let _ = Text::new(meridiem(local), Point::new(ampm_x, 44), small).draw(frame);
+        let _ = Text::new(date, Point::new(236 - date.len() as i32 * 6, 15), small).draw(frame);
 
-        match next {
+        // The corner mark says the lamp is asleep. It is part of the frame, not a thing drawn and
+        // erased: every minute tick redraws the whole face anyway, so the tick keeps it, and only a
+        // wake by hand draws a face without it.
+        if s.sleeping {
+            let _ = Text::new("z z z", Point::new(196, 28), small).draw(frame);
+        }
+
+        match s.next {
             Some((at, prayer)) => {
                 let local_at = utc_to_egypt(at);
                 let mut at_buf = [0u8; HHMM12_LEN];
-                let at = format_hhmm12(local_at, &mut at_buf);
-                let name = prayer.name();
+                let at_text = format_hhmm12(local_at, &mut at_buf);
                 // A prayer shown at 10:43 reading "Fajr 4:44" has to say it is tomorrow's.
                 let mut x = 14;
+                let _ = Text::new("Next:", Point::new(x, 72), small).draw(frame);
+                x += 5 * 6 + 6;
                 if local_at.div_euclid(1440) != local.div_euclid(1440) {
-                    let _ = Text::new("tomorrow", Point::new(x, 108), small).draw(frame);
+                    let _ = Text::new("tomorrow", Point::new(x, 72), small).draw(frame);
                     x += 8 * 6 + 6;
                 }
                 // FONT_6X10 advances six pixels per character, so each word follows the last.
-                let _ = Text::new(name, Point::new(x, 108), small).draw(frame);
+                let name = prayer.name();
+                let _ = Text::new(name, Point::new(x, 72), small).draw(frame);
                 x += name.len() as i32 * 6 + 6;
-                let _ = Text::new(at, Point::new(x, 108), small).draw(frame);
-                x += at.len() as i32 * 6 + 6;
-                let _ = Text::new(meridiem(local_at), Point::new(x, 108), small).draw(frame);
-                defmt::info!("panel: face drawn, {} next {} {}", time, name, at);
+                let _ = Text::new(at_text, Point::new(x, 72), small).draw(frame);
+                x += at_text.len() as i32 * 6 + 6;
+                let _ = Text::new(meridiem(local_at), Point::new(x, 72), small).draw(frame);
+
+                // How long is left, held against the right edge: a name plus `tomorrow` can use
+                // most of the line, so the countdown gets its own end rather than following on.
+                let mut cd_buf = [0u8; COUNTDOWN_LEN];
+                let cd = format_countdown(at - s.now_min, &mut cd_buf);
+                let _ = Text::new(cd, Point::new(236 - cd.len() as i32 * 6, 72), small).draw(frame);
+                defmt::info!("panel: face drawn, {} next {} {} {}", time, name, at_text, cd);
             }
             None => {
-                let _ = Text::new("time not set", Point::new(14, 108), small).draw(frame);
+                let _ = Text::new("time not set", Point::new(14, 72), small).draw(frame);
                 defmt::info!("panel: face drawn, {} with no trusted time", time);
             }
         }
 
-        // The corner mark says the lamp is asleep. It is part of the frame, not a thing drawn
-        // and erased: every minute tick redraws the whole face anyway, so the tick keeps it, and
-        // only a wake by hand draws a face without it.
-        if sleeping {
-            let _ = Text::new("z z z", Point::new(196, 30), small).draw(frame);
+        // Today's five: the name, a dot that is filled when that prayer rings, and its time under
+        // the name. Fifty pixels a column is what limits the time to a one-letter meridiem.
+        if s.today.iter().any(|t| t.is_some()) {
+            let _ = Line::new(Point::new(10, 88), Point::new(240, 88))
+                .into_styled(rule)
+                .draw(frame);
+            for (i, p) in Prayer::ALL.iter().enumerate() {
+                let cx = 24 + i as i32 * 48;
+                let name = p.name();
+                let w = name.len() as i32 * 6;
+                let _ = Text::new(name, Point::new(cx - w / 2, 98), small).draw(frame);
+
+                let dot = Circle::new(Point::new(cx + w / 2 + 3, 92), 5);
+                let ring = s.prayers_on & (1 << p.index()) != 0;
+                let style = if ring {
+                    PrimitiveStyle::with_fill(Color::Black)
+                } else {
+                    PrimitiveStyle::with_stroke(Color::Black, 1)
+                };
+                let _ = dot.into_styled(style).draw(frame);
+
+                let mut t_buf = [0u8; SHORT_LEN];
+                let t = match s.today[i] {
+                    Some(min) => hhmm12_short(min, &mut t_buf),
+                    None => "--:--",
+                };
+                let _ = Text::new(t, Point::new(cx - t.len() as i32 * 3, 111), small).draw(frame);
+            }
         }
 
-        let refreshed = if self.fast {
-            self.driver.fast_update(&self.frame)
-        } else {
-            self.driver.full_update(&self.frame)
-        };
-        if let Err(e) = refreshed {
-            defmt::info!("panel: refresh failed: {:?}", defmt::Debug2Format(&e));
-        }
-        // The glass now holds this image, so the next draw can take the diff against it.
-        self.fast = true;
+        self.push();
     }
 
     /// Draw the screen the menu is on. The clock face is [`Self::show_clock`]; everything else

@@ -1,4 +1,4 @@
-use crate::calendar::{egypt_offset_min, weekday};
+use crate::calendar::{egypt_offset_min, utc_to_egypt, weekday};
 
 /// Bit 0 = Sunday .. bit 6 = Saturday, by the Egypt date of the event.
 pub const ALL_DAYS: u8 = 0b0111_1111;
@@ -145,6 +145,21 @@ pub fn next_prayer(from_min: i64, prayers: &PrayerTable) -> Option<(i64, Prayer)
     None
 }
 
+/// The five prayer times of the local day `now_min` falls on, as local minutes after midnight.
+///
+/// A table entry is one local date's prayers in UTC minutes, so the day to read is the local date,
+/// not the UTC one: at 23:30 UTC the lamp is already in tomorrow's date and its strip should say
+/// so. `None` per prayer where the table does not reach.
+pub fn local_times(now_min: i64, prayers: &PrayerTable) -> [Option<i64>; 5] {
+    let day = utc_to_egypt(now_min).div_euclid(1440) as i32;
+    core::array::from_fn(|i| {
+        let m = prayers.utc_min(Prayer::ALL[i], day)? as i64;
+        // The offset in force at the prayer's own hour, so the two days a year the clocks change
+        // keep the right hour on either side of the switch.
+        Some(m + egypt_offset_min(day as i64 * 1440 + m - 120))
+    })
+}
+
 /// The earliest event whose start is at or after `from_min`. Looks three days ahead.
 /// The firmware asks with `now + 1` after running what is due, so an event is never programmed twice.
 pub fn next_event(from_min: i64, rules: &[Rule], prayers: &PrayerTable) -> Option<Event> {
@@ -191,6 +206,26 @@ mod tests {
         Rule { days: ALL_DAYS, when: When::Prayer(Prayer::Fajr, 0), action: Action::Play { track: 1, volume: 20, fade_in_s: 60 } },
         Rule { days: 0b0001_1111, when: When::Local(7 * 60 + 30), action: Action::Alarm },
     ];
+
+    #[test]
+    fn the_strip_reads_the_local_day_at_its_own_offset() {
+        let mut b = [0u8; 50];
+        let t = table(&mut b, days_from_civil(2026, 1, 1), [217, 217, 217, 217, 217]);
+        // 10:00 UTC in winter: Cairo is +2, so 03:37 UTC reads as 05:37 and the rest follow.
+        let now = days_from_civil(2026, 1, 1) as i64 * 1440 + 600;
+        assert_eq!(
+            local_times(now, &t),
+            [Some(337), Some(437), Some(537), Some(637), Some(737)]
+        );
+
+        // 23:30 UTC on 31 December is already 1 January in Cairo, so the strip is that day's.
+        let new_year_eve = days_from_civil(2025, 12, 31) as i64 * 1440 + 23 * 60 + 30;
+        assert_eq!(local_times(new_year_eve, &t)[0], Some(337));
+
+        // A day the table does not reach has nothing to show.
+        let far = days_from_civil(2030, 1, 1) as i64 * 1440;
+        assert_eq!(local_times(far, &t), [None; 5]);
+    }
 
     #[test]
     fn table_lookup_and_bounds() {
