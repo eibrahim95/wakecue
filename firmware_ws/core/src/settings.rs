@@ -330,6 +330,22 @@ impl Settings {
         str_of(&self.place)
     }
 
+    /// The method the stored fields describe, as the astronomy wants it.
+    ///
+    /// The block keeps one `isha_value` for either method, so which one it means is the `isha`
+    /// switch: an angle below the horizon, or minutes after Maghrib.
+    pub fn method(&self) -> crate::astro::Method {
+        crate::astro::Method {
+            fajr_angle_d10: self.fajr_angle_d10,
+            isha_angle_d10: match self.isha {
+                Isha::Angle => Some(self.isha_value),
+                Isha::Minutes => None,
+            },
+            isha_minutes: self.isha_value,
+            asr_shadow: self.asr_shadow,
+        }
+    }
+
     /// False when the text does not fit, so the caller can say which line it came from.
     pub fn set_ssid(&mut self, s: &str) -> bool {
         set_str(&mut self.ssid, s)
@@ -977,5 +993,21 @@ mod tests {
         assert_eq!(Stored::save_target(Some(&b), Some(&a)), (Sector::B, 5));
         assert_eq!(Sector::A.addr(), 0x9000);
         assert_eq!(Sector::B.addr(), 0xA000);
+    }
+
+    #[test]
+    fn the_stored_method_is_the_astronomical_one() {
+        // The block keeps one `isha_value` for two methods, so the switch has to pick the branch:
+        // 17.5 read as minutes would put Isha a quarter of an hour after Maghrib.
+        let m = Settings::default().method();
+        assert_eq!(m.fajr_angle_d10, 195);
+        assert_eq!(m.isha_angle_d10, Some(175));
+        assert_eq!(m.asr_shadow, 1);
+
+        let s = Settings { isha: Isha::Minutes, isha_value: 90, asr_shadow: 2, ..Settings::default() };
+        let m = s.method();
+        assert_eq!(m.isha_angle_d10, None);
+        assert_eq!(m.isha_minutes, 90);
+        assert_eq!(m.asr_shadow, 2);
     }
 }

@@ -64,50 +64,22 @@ pub struct Event {
     pub action: Action,
 }
 
-/// Prayer table: per day five little-endian u16 (Fajr, Dhuhr, Asr, Maghrib, Isha), minutes after 00:00 UTC.
-pub struct PrayerTable<'a> {
-    pub first_day: i32,
-    pub data: &'a [u8],
-}
-
-/// Bytes per day in a prayer table.
-pub const TABLE_STRIDE: usize = 10;
-
-/// First four bytes of a table file, from `prayer-gen`.
-pub const BLOB_MAGIC: &[u8; 4] = b"WCP1";
-/// Magic, then the first day as an i32, before the per-day times.
-pub const BLOB_HEADER: usize = 8;
-
-impl<'a> PrayerTable<'a> {
-    /// Read a table file from `prayer-gen`: magic, first day (i32 little-endian), then the days.
-    ///
-    /// The day range travels with the times, so regenerating over another range cannot leave the
-    /// firmware looking up the right prayer on the wrong day.
-    pub fn from_blob(blob: &'a [u8]) -> Option<PrayerTable<'a>> {
-        if blob.len() < BLOB_HEADER || !blob.starts_with(BLOB_MAGIC) {
-            return None;
-        }
-        let first_day = i32::from_le_bytes([blob[4], blob[5], blob[6], blob[7]]);
-        let data = &blob[BLOB_HEADER..];
-        if data.is_empty() || data.len() % TABLE_STRIDE != 0 {
-            return None;
-        }
-        Some(PrayerTable { first_day, data })
-    }
-
-    pub fn utc_min(&self, prayer: Prayer, day: i32) -> Option<u16> {
-        let i = usize::try_from(day.checked_sub(self.first_day)?).ok()?;
-        let at = i * TABLE_STRIDE + prayer.index() * 2;
-        let b = self.data.get(at..at + 2)?;
-        Some(u16::from_le_bytes([b[0], b[1]]))
-    }
+/// Where the schedule gets a day's prayer times.
+///
+/// The lamp computes them from the place it is told it sits at ([`crate::astro::Place`]); the tests
+/// hand them in, which is how a rule can be tried on a day that suits it.
+///
+/// The day is a UTC day and the answer is minutes after its 00:00 UTC, so it may fall outside a
+/// single day for a place whose clocks and longitude disagree.
+pub trait PrayerTimes {
+    fn utc_min(&self, prayer: Prayer, day: i32) -> Option<i64>;
 }
 
 /// The instant (UTC minutes) when `rule` reaches its time on the UTC day `day`, if it does.
-fn target_min(rule: &Rule, day: i32, prayers: &PrayerTable) -> Option<i64> {
+fn target_min(rule: &Rule, day: i32, prayers: &impl PrayerTimes) -> Option<i64> {
     let base = day as i64 * 1440;
     match rule.when {
-        When::Prayer(p, off) => Some(base + prayers.utc_min(p, day)? as i64 + off as i64),
+        When::Prayer(p, off) => Some(base + prayers.utc_min(p, day)? + off as i64),
         When::Local(m) => {
             // The Egypt offset can change on this very day, so test the day's local midnight.
             let off = egypt_offset_min(base + m as i64 - 120);
@@ -121,16 +93,16 @@ fn target_min(rule: &Rule, day: i32, prayers: &PrayerTable) -> Option<i64> {
 /// Unlike [`next_event`] this ignores the rules and the switches: it answers "which prayer comes
 /// next", which is what the face shows. A prayer is reported at its own time, not at the minute
 /// its ramp starts.
-pub fn next_prayer(from_min: i64, prayers: &PrayerTable) -> Option<(i64, Prayer)> {
+pub fn next_prayer(from_min: i64, prayers: &impl PrayerTimes) -> Option<(i64, Prayer)> {
     let first = from_min.div_euclid(1440) as i32;
-    // Five prayers a day are well inside two days of lookahead, but a table that ends gets the
+    // Five prayers a day are well inside two days of lookahead, and a place with no times gets the
     // same answer either way: none.
     for day in first..first + 2 {
         let base = day as i64 * 1440;
         let mut best: Option<(i64, Prayer)> = None;
         for p in Prayer::ALL {
             let Some(m) = prayers.utc_min(p, day) else { continue };
-            let at = base + m as i64;
+            let at = base + m;
             if at < from_min {
                 continue;
             }
@@ -147,13 +119,12 @@ pub fn next_prayer(from_min: i64, prayers: &PrayerTable) -> Option<(i64, Prayer)
 
 /// The five prayer times of the local day `now_min` falls on, as local minutes after midnight.
 ///
-/// A table entry is one local date's prayers in UTC minutes, so the day to read is the local date,
-/// not the UTC one: at 23:30 UTC the lamp is already in tomorrow's date and its strip should say
-/// so. `None` per prayer where the table does not reach.
-pub fn local_times(now_min: i64, prayers: &PrayerTable) -> [Option<i64>; 5] {
+/// The day to ask for is the local date, not the UTC one: at 23:30 UTC the lamp is already in
+/// tomorrow's date and its strip should say so. `None` per prayer where the sun never gets there.
+pub fn local_times(now_min: i64, prayers: &impl PrayerTimes) -> [Option<i64>; 5] {
     let day = utc_to_egypt(now_min).div_euclid(1440) as i32;
     core::array::from_fn(|i| {
-        let m = prayers.utc_min(Prayer::ALL[i], day)? as i64;
+        let m = prayers.utc_min(Prayer::ALL[i], day)?;
         // The offset in force at the prayer's own hour, so the two days a year the clocks change
         // keep the right hour on either side of the switch.
         Some(m + egypt_offset_min(day as i64 * 1440 + m - 120))
@@ -162,7 +133,7 @@ pub fn local_times(now_min: i64, prayers: &PrayerTable) -> [Option<i64>; 5] {
 
 /// The earliest event whose start is at or after `from_min`. Looks three days ahead.
 /// The firmware asks with `now + 1` after running what is due, so an event is never programmed twice.
-pub fn next_event(from_min: i64, rules: &[Rule], prayers: &PrayerTable) -> Option<Event> {
+pub fn next_event(from_min: i64, rules: &[Rule], prayers: &impl PrayerTimes) -> Option<Event> {
     let first = from_min.div_euclid(1440) as i32 - 1;
     let mut best: Option<Event> = None;
     for day in first..first + 5 {
@@ -177,7 +148,7 @@ pub fn next_event(from_min: i64, rules: &[Rule], prayers: &PrayerTable) -> Optio
             let local = target + egypt_offset_min(target);
             let wd = weekday(local.div_euclid(1440) as i32);
             if rule.days & (1 << wd) == 0 { continue; }
-            if best.map_or(true, |b| start < b.utc_min) {
+            if best.is_none_or(|b| start < b.utc_min) {
                 best = Some(Event { utc_min: start, action: rule.action });
             }
         }
@@ -190,15 +161,33 @@ mod tests {
     use super::*;
     use crate::calendar::days_from_civil;
 
+    /// The old table file's shape, kept here as the test source of times: the lamp computes its own
+    /// now, but a day with Fajr at 03:10 is still the clearest way to test a rule.
+    struct Fake<'a> {
+        first_day: i32,
+        data: &'a [u8],
+    }
+
+    const STRIDE: usize = 10;
+
+    impl PrayerTimes for Fake<'_> {
+        fn utc_min(&self, prayer: Prayer, day: i32) -> Option<i64> {
+            let i = usize::try_from(day.checked_sub(self.first_day)?).ok()?;
+            let at = i * STRIDE + prayer.index() * 2;
+            let b = self.data.get(at..at + 2)?;
+            Some(u16::from_le_bytes([b[0], b[1]]) as i64)
+        }
+    }
+
     /// A table where every prayer on every day is `fajr` minutes plus 100 per prayer index.
-    fn table(bytes: &mut [u8; 50], first_day: i32, fajr: [u16; 5]) -> PrayerTable<'_> {
+    fn table(bytes: &mut [u8; 50], first_day: i32, fajr: [u16; 5]) -> Fake<'_> {
         for (d, f) in fajr.iter().enumerate() {
             for p in 0..5 {
-                let at = d * TABLE_STRIDE + p * 2;
+                let at = d * STRIDE + p * 2;
                 bytes[at..at + 2].copy_from_slice(&(f + 100 * p as u16).to_le_bytes());
             }
         }
-        PrayerTable { first_day, data: bytes }
+        Fake { first_day, data: bytes }
     }
 
     const RULES: [Rule; 3] = [
@@ -225,52 +214,6 @@ mod tests {
         // A day the table does not reach has nothing to show.
         let far = days_from_civil(2030, 1, 1) as i64 * 1440;
         assert_eq!(local_times(far, &t), [None; 5]);
-    }
-
-    #[test]
-    fn table_lookup_and_bounds() {
-        let mut b = [0u8; 50];
-        let t = table(&mut b, 100, [5, 6, 7, 8, 300]);
-        assert_eq!(t.utc_min(Prayer::Fajr, 100), Some(5));
-        assert_eq!(t.utc_min(Prayer::Isha, 100), Some(405));
-        assert_eq!(t.utc_min(Prayer::Maghrib, 104), Some(600));
-        assert_eq!(t.utc_min(Prayer::Fajr, 105), None);
-        assert_eq!(t.utc_min(Prayer::Fajr, 99), None);
-    }
-
-    #[test]
-    fn blob_header_carries_the_first_day() {
-        let mut blob = [0u8; BLOB_HEADER + 2 * TABLE_STRIDE];
-        blob[..4].copy_from_slice(BLOB_MAGIC);
-        blob[4..8].copy_from_slice(&100i32.to_le_bytes());
-        for day in 0..2 {
-            for p in 0..5 {
-                let at = BLOB_HEADER + day * TABLE_STRIDE + p * 2;
-                blob[at..at + 2].copy_from_slice(&(5 + 100 * p as u16).to_le_bytes());
-            }
-        }
-        let t = PrayerTable::from_blob(&blob).unwrap();
-        assert_eq!(t.first_day, 100);
-        assert_eq!(t.utc_min(Prayer::Fajr, 100), Some(5));
-        assert_eq!(t.utc_min(Prayer::Isha, 101), Some(405));
-        assert_eq!(t.utc_min(Prayer::Fajr, 102), None);
-    }
-
-    #[test]
-    fn a_blob_with_the_wrong_magic_or_length_is_refused() {
-        assert!(PrayerTable::from_blob(&[]).is_none());
-        // Header only, no days.
-        let mut bare = [0u8; BLOB_HEADER];
-        bare[..4].copy_from_slice(BLOB_MAGIC);
-        assert!(PrayerTable::from_blob(&bare).is_none());
-        // Right length, wrong magic.
-        let mut wrong = [0u8; BLOB_HEADER + TABLE_STRIDE];
-        wrong[..4].copy_from_slice(b"WCP0");
-        assert!(PrayerTable::from_blob(&wrong).is_none());
-        // One byte short of a whole day.
-        let mut short = [0u8; BLOB_HEADER + TABLE_STRIDE - 1];
-        short[..4].copy_from_slice(BLOB_MAGIC);
-        assert!(PrayerTable::from_blob(&short).is_none());
     }
 
     #[test]
@@ -304,8 +247,8 @@ mod tests {
     }
 
     #[test]
-    fn next_prayer_without_a_table_is_none() {
-        let empty = PrayerTable { first_day: 0, data: &[] };
+    fn next_prayer_without_times_is_none() {
+        let empty = Fake { first_day: 0, data: &[] };
         assert_eq!(next_prayer(20454 * 1440, &empty), None);
     }
 
@@ -334,7 +277,7 @@ mod tests {
         // Fri 30 Oct 2026 is winter time: 07:30 local = 05:30 UTC. Thursday 29 Oct is still summer: 04:30 UTC.
         let rules = [Rule { days: ALL_DAYS, when: When::Local(7 * 60 + 30), action: Action::Alarm }];
         let thu = days_from_civil(2026, 10, 29);
-        let t = PrayerTable { first_day: 0, data: &[] };
+        let t = Fake { first_day: 0, data: &[] };
         let e = next_event(thu as i64 * 1440, &rules, &t).unwrap();
         assert_eq!(e.utc_min, thu as i64 * 1440 + 4 * 60 + 30);
         let e = next_event(e.utc_min + 1, &rules, &t).unwrap();
@@ -347,7 +290,7 @@ mod tests {
         let rules = [Rule { days: 0b0001_1111, when: When::Local(7 * 60 + 30), action: Action::Alarm }];
         let thu = days_from_civil(2026, 1, 8); // winter
         assert_eq!(weekday(thu), 4);
-        let t = PrayerTable { first_day: 0, data: &[] };
+        let t = Fake { first_day: 0, data: &[] };
         let e = next_event(thu as i64 * 1440 + 5 * 60, &rules, &t).unwrap();
         assert_eq!(e.utc_min, thu as i64 * 1440 + 5 * 60 + 30);
         let e = next_event(e.utc_min + 1, &rules, &t).unwrap();
@@ -371,9 +314,9 @@ mod tests {
     }
 
     #[test]
-    fn no_events_when_the_table_is_missing_and_only_fajr_rules() {
+    fn no_events_when_there_are_no_prayer_times_and_only_fajr_rules() {
         let rules = [Rule { days: ALL_DAYS, when: When::Prayer(Prayer::Fajr, 0), action: Action::Alarm }];
-        let t = PrayerTable { first_day: 0, data: &[] };
+        let t = Fake { first_day: 0, data: &[] };
         assert_eq!(next_event(20454 * 1440, &rules, &t), None);
     }
 }

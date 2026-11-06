@@ -4,3 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# Trigonometry for the prayer times. `core` has no `sin`, and the chip has no FPU to lean on, so
+# this is musl's libm as plain Rust: the same code runs on the PC and on the C3.
+libm = "0.2"

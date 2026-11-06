@@ -35,11 +35,6 @@ ring:
 monitor name="wakecue":
     espflash monitor --chip esp32c3 -L defmt --elf target/riscv32imc-unknown-none-elf/release/{{name}}
 
-# Regenerate the prayer table the firmware embeds: Cairo, ten years from 2026.
-# Run from `prayer-gen`'s own directory so the chip's target settings do not apply.
-prayers:
-    cd ../prayer-gen && cargo run --release -- 30.0444 31.2357 2026 10 ../wakecue/prayers-cairo.bin
-
 # ---- settings from the PC, for a lamp whose menu is stuck or whose panel is dark ----
 # The block is written by the same encoder the firmware reads, so this cannot drift from it.
 # Each of these needs the board in download mode: hold BOOT, tap RST, release BOOT.

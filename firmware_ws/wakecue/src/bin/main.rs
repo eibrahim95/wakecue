@@ -21,7 +21,8 @@ use esp_storage::FlashStorage;
 use lamp_core::calendar::{FORMAT_LEN, format_minutes, utc_to_egypt};
 use lamp_core::buttons::{self, KeyReader};
 use lamp_core::ds3231;
-use lamp_core::schedule::{self, Action, Prayer, PrayerTable, Rule, When};
+use lamp_core::astro::Place;
+use lamp_core::schedule::{self, Action, Prayer, PrayerTimes, Rule, When};
 use lamp_core::menu::{Menu, Screen};
 use lamp_core::settings::{
     MAX_RULES, READ_LEN, Sector, Settings, Stored, SECTOR_A, SECTOR_B, SECTOR_LEN, STORED_LEN,
@@ -49,10 +50,6 @@ const ALARM_POLL_MS: u32 = 50;
 /// pressing Down five times moves five rows instead of one, and only the presses that land inside
 /// a refresh are still lost.
 const DRAW_QUIET_MS: u32 = 180;
-
-/// The prayer table from `prayer-gen` (Cairo, ten years from 2026-01-01), built into the image.
-/// `just prayers` regenerates it; the day range travels inside the file.
-static PRAYERS: &[u8] = include_bytes!("../../prayers-cairo.bin");
 
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
@@ -83,7 +80,7 @@ fn now_minutes(bus: &mut I2c<'static, esp_hal::Blocking>) -> i64 {
 /// Prayers count whether or not their switch is on — the glass is a prayer clock, and the strip
 /// below already lists all five — while an alarm only counts if it is set and enabled, because an
 /// alarm that will not ring is not something the lamp is about to do.
-fn next_up(now_min: i64, settings: &Settings, prayers: &PrayerTable) -> Option<NextUp> {
+fn next_up(now_min: i64, settings: &Settings, prayers: &impl PrayerTimes) -> Option<NextUp> {
     match (schedule::next_prayer(now_min, prayers), settings.next_alarm(now_min)) {
         (Some((prayer_at, _)), Some((alarm_at, _))) if alarm_at < prayer_at => {
             Some(NextUp::Alarm(alarm_at))
@@ -245,8 +242,9 @@ fn main() -> ! {
     let mut sectors = [read_block(&mut flash, SECTOR_A), read_block(&mut flash, SECTOR_B)];
     let stored = Stored::newest(sectors[0], sectors[1]);
     let settings = stored.map_or_else(Settings::default, |s| s.settings);
-    // Built once: the face asks for the next prayer on every draw, not only at boot.
-    let prayers = PrayerTable::from_blob(PRAYERS).expect("prayer table");
+    // The five times are computed from the stored place on every boot: nothing about them is in
+    // the image, so the place the owner picks is the place the lamp computes for.
+    let prayers = Place::new(settings.lat_e2, settings.lon_e2, settings.method());
 
     // The display owns GPIO0, 1, 2, 8 and 9 (reset, busy, data/command, data, clock), so
     // this firmware never drives the onboard LED: it shares GPIO8 with the SPI data line.

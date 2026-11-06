@@ -1,6 +1,7 @@
 //! Lamp & Alarm logic that runs on the PC and on the chip: no hardware, no allocation.
 #![no_std]
 
+pub mod astro;
 pub mod buttons;
 pub mod calendar;
 pub mod dfplayer;
