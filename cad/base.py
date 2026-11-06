@@ -8,9 +8,12 @@ Two shapes:
          that leans back ~5° so the clock faces you in bed
   rect   180 × 170 box with 12 mm corners, vertical front
 
-Four menu buttons sit in a column on the right-hand side towards the back (30 degrees
-round from the right), each under a small printed cap that passes through a hole in a flat
-panel cut into the wall. The spot is chosen to clear the DS3231 frame and the ballast cups.
+Four menu buttons sit in a row under the e-paper window, on the flat front: Up, Down, Ok, Back,
+left to right. They grow from the front wall (a bar inside it, one pocket and one cap hole per
+button), so the row is on the face you are already looking at when you read the clock.
+
+The front ballast cups sit just behind that bar, so the bar is only as deep as the switch stack.
+The e-paper window is set high enough for the row to clear it.
 
 Print the body upside down (top face on the bed): every internal feature
 grows from the top plate or the walls, so it needs no supports. The button
@@ -47,30 +50,29 @@ SEAT_R = NECK_D / 2 + GRIP_T
 SEAT_DEPTH = 8.0
 COLLAR_Z0 = H - SEAT_DEPTH - 3.0   # 3 mm floor under the seat
 
-WIN_W, WIN_H, WIN_Z = 50.0, 25.0, 24.0       # e-paper window
+WIN_W, WIN_H, WIN_Z = 50.0, 25.0, 30.5       # e-paper window, high enough to clear the buttons
 EPD_W, EPD_H, EPD_T = 72.0, 30.0, 3.4         # WeAct 2.13 module + slack
 EPD_Z0 = WIN_Z - EPD_H / 2
-TOUCH_X = 40.0
+TOUCH_X, TOUCH_Z = 40.0, 24.0
 
-# four menu buttons (Mini Push Button 4-pin 6x6x5.5 mm: a 3.5 mm body and about 2 mm of stem, to be checked on the real part)
-BTN_Z = (12.5, 22.5, 32.5, 42.5)   # centres, bottom (Back) to top, then Down, Ok, Up
-BTN_ANGLE = 30.0 if SHAPE == "round" else 0.0   # turned about the centre; the column points straight out of the wall
-BTN_BLOCK_X0 = 60.0        # inner face of the solid block the switches sit in
-BTN_BORE_D = 8.8           # switch pocket, wide enough for the 6x6 body (8.5 diagonal) and the cap flange
+# four menu buttons in a row under the window: Up, Down, Ok, Back, left to right
+# (Mini Push Button 4-pin 6x6x5.5 mm: a 3.5 mm body and about 2 mm of stem)
+BTN_ROW_X = (-18.0, -6.0, 6.0, 18.0)   # centres, mm from the middle
+BTN_ROW_Z = 8.5                         # row centre above the underside
+BTN_BLOCK_X = 23.5                      # half width of the solid bar behind the face
+BTN_BLOCK_Z0, BTN_BLOCK_Z1 = 4.2, 14.5  # above the lid's plate (the bar leans with the wall), below the window
+BTN_BLOCK_DEPTH = 9.5                   # face to the bar's back: the whole switch stack
+BTN_BORE_D = 8.8           # switch pocket, wide enough for the 6x6 body (8.5 diagonal)
 BTN_HOLE_D = 6.2           # through the wall, for the cap shaft
-BTN_SHOULDER_X = 69.0      # where the pocket ends and the wall hole starts
-BTN_SW_BODY = 3.5
-BTN_SW_STEM = 2.0
-BTN_TIP_X = BTN_BLOCK_X0 + BTN_SW_BODY + BTN_SW_STEM   # where the stem tip rests
-BTN_CAP_D, BTN_FLANGE_D, BTN_FLANGE_T, BTN_PROUD = 5.8, 8.2, 1.6, 0.8
-BTN_BLOCK_Y = 9.5          # half width of the block and the flat panel
+BTN_PROUD = 0.8            # how far the cap stands out of the face
+BTN_CAP_D, BTN_FLANGE_D, BTN_FLANGE_T = 5.8, 8.2, 1.6
+BTN_CAP_LEN = BTN_FLANGE_T + FRONT_WALL + BTN_PROUD   # flange base to the cap tip
 
 USB_W, USB_Z_TOP = 9.6, 13.5
 USB_PLUG_W, USB_PLUG_Z_TOP = 13.0, 15.5      # room for the plug's moulded grip
 WASHER_R = 12.5      # ballast cups, Ø25 × 8: lead sinkers or steel nuts
 
 R_BOT, R_TOP = 80.0, 75.0   # round only
-BTN_PANEL_X = 74.5 if SHAPE == "round" else 89.0   # the flat the caps stand proud of
 if SHAPE == "round":
     FRONT_OUT = -66.0
     BACK_IN = R_BOT - WALL                # inner back wall at the bottom
@@ -78,7 +80,8 @@ if SHAPE == "round":
               for a in (45, 135, 225, 315)]
     FEET = [(68 * math.cos(math.radians(a)), 68 * math.sin(math.radians(a)))
             for a in (22.5, 112.5, 202.5, 292.5)]
-    CUPS = [(-25, 45), (25, 45), (-20, -45), (20, -45)]
+    # the front pair sits behind the button bar, so it is pulled back from -45 to -40
+    CUPS = [(-25, 45), (25, 45), (-26, -40), (26, -40)]
 else:
     W, D, CR = 180.0, 170.0, 12.0
     FRONT_OUT = -D / 2
@@ -112,9 +115,9 @@ def rounded_rect(w, d, r):
     return core.offset(r, JoinType.Round)
 
 
-def xcyl(r, x0, x1, y=0.0, z=0.0):
-    """Cylinder along +x from x0 to x1."""
-    return Manifold.cylinder(x1 - x0, r).rotate((0, 90, 0)).translate((x0, y, z))
+def ycyl(r, y0, y1, x=0.0, z=0.0):
+    """Cylinder along +y from y0 to y1."""
+    return Manifold.cylinder(y1 - y0, r).rotate((-90, 0, 0)).translate((x, y0, z))
 
 
 def tilt(m):
@@ -160,17 +163,15 @@ def body():
         b += (cyl(4.0, LID_T, H - TOP, x, y) + rib) ^ clip
         b -= cyl(1.25, LID_T - 1, LID_T + 12, x, y)          # M3 self-tapper pilot
 
-    # menu buttons: a solid block on the right side, a flat panel cut into the wall, then per button a
-    # pocket for the switch, a wider bore for the cap flange and a hole for the cap shaft
-    z_lo, z_hi = BTN_Z[0] - BTN_BLOCK_Y + 0.5, BTN_Z[-1] + BTN_BLOCK_Y - 0.5
-    def turn(m):
-        return m.rotate((0, 0, BTN_ANGLE))
-    block = box(BTN_BLOCK_X0, 100, -BTN_BLOCK_Y, BTN_BLOCK_Y, z_lo - 0.2, z_hi + 0.2)
-    b += turn(block) ^ clip
-    b -= turn(box(BTN_PANEL_X, 110, -BTN_BLOCK_Y, BTN_BLOCK_Y, z_lo, z_hi))
-    for z in BTN_Z:
-        b -= turn(xcyl(BTN_BORE_D / 2, BTN_BLOCK_X0 - 1, BTN_SHOULDER_X, 0, z))
-        b -= turn(xcyl(BTN_HOLE_D / 2, BTN_SHOULDER_X - 0.5, 110, 0, z))
+    # menu buttons: a bar inside the flat front, under the window. Each button gets a pocket for
+    # the switch body and a hole through the wall for its cap. The bar is shallow on purpose: the
+    # front ballast cups sit about a millimetre behind it.
+    bar = box(-BTN_BLOCK_X, BTN_BLOCK_X, FRONT_OUT, FRONT_OUT + BTN_BLOCK_DEPTH,
+              BTN_BLOCK_Z0, BTN_BLOCK_Z1)
+    b += tilt(bar) ^ clip
+    for x in BTN_ROW_X:
+        b -= tilt(ycyl(BTN_BORE_D / 2, FRONT_IN, FRONT_OUT + BTN_BLOCK_DEPTH, x, BTN_ROW_Z))
+        b -= tilt(ycyl(BTN_HOLE_D / 2, FRONT_OUT - 1, FRONT_IN, x, BTN_ROW_Z))
 
     # e-paper window, rails with back lips, top stops, touch ring (lean with the wall)
     front = Manifold()
@@ -185,7 +186,7 @@ def body():
     b -= tilt(box(-WIN_W / 2, WIN_W / 2, FRONT_OUT - 3, FRONT_IN + 0.01,
                   WIN_Z - WIN_H / 2, WIN_Z + WIN_H / 2))
     ring = (cyl(3.0, 0, 1) - cyl(2.2, -1, 2)).rotate((90, 0, 0))
-    b -= tilt(ring.translate((TOUCH_X, FRONT_OUT + 0.6, WIN_Z)))
+    b -= tilt(ring.translate((TOUCH_X, FRONT_OUT + 0.6, TOUCH_Z)))
 
     # TP4056: USB-C notch open to the underside, guides that stop the board
     b -= box(-USB_W / 2, USB_W / 2, BACK_IN - 2, BACK_IN + WALL + 10, -1, USB_Z_TOP)
@@ -236,9 +237,9 @@ def grip_ring():
 
 
 def button_cap():
-    """Shaft through the wall, flange inside; printed flange down. Its inner end rests on the switch stem."""
-    length = BTN_PANEL_X + BTN_PROUD - BTN_TIP_X
-    return cyl(BTN_FLANGE_D / 2, 0, BTN_FLANGE_T) + cyl(BTN_CAP_D / 2, 0, length)
+    """Shaft through the wall, flange inside; printed flange down. The switch's stem pushes the
+    flange, and the wall keeps the cap from falling out."""
+    return cyl(BTN_CAP_D / 2, 0, BTN_CAP_LEN) + cyl(BTN_FLANGE_D / 2, 0, BTN_FLANGE_T)
 
 
 def foot():
