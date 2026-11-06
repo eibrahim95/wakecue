@@ -166,8 +166,68 @@ section{scroll-margin-top:16px}
   </div>
 </header>
 <nav class="toc" aria-label="Contents">
-  <a href="#overview">Overview</a><a href="#how">How it works</a><a href="#schedule">Schedule</a><a href="#bom">Parts</a><a href="#base">Base</a><a href="#wiring">Wiring</a><a href="#sound">Sound</a><a href="#software">Software</a><a href="#status">Build log</a><a href="#plan">Milestones</a><a href="#battery">Battery</a><a href="#todo">Still to check</a><a href="#sources">Sources</a>
+  <a href="#roadmap">Roadmap</a><a href="#overview">Overview</a><a href="#how">How it works</a><a href="#schedule">Schedule</a><a href="#bom">Parts</a><a href="#base">Base</a><a href="#wiring">Wiring</a><a href="#sound">Sound</a><a href="#software">Software</a><a href="#status">Build log</a><a href="#plan">Buying</a><a href="#battery">Battery</a><a href="#todo">Open evidence</a><a href="#sources">Sources</a>
 </nav>
+<section id="roadmap">
+  <h2>Roadmap</h2>
+  <p class="lead"><b>The goal:</b> one bedside lamp, built and given to someone else. It shows the five
+  prayers for <i>their</i> place, wakes them for Fajr with light and sound, and asks for nothing but a
+  phone: no PC, no password compiled in, no reflashing. Every other section of this page is reference —
+  how it is wired, what it costs, how it looks. This one is the plan.</p>
+
+  <h3>Where it stands (seen on the board, not hoped for)</h3>
+  <ul>
+    <li><b>The face:</b> twelve-hour time, date, the next prayer or alarm with a countdown, and the five
+    prayers with their times and a dot each.</li>
+    <li><b>The menu:</b> four buttons walk Prayers, My alarms and the alarm editor; a change is written
+    to the settings block and survives an unplug.</li>
+    <li><b>The alarm:</b> named on the face before it comes, and it takes the whole panel at its minute
+    until somebody answers it.</li>
+    <li><b>Sleep:</b> the chip sleeps and wakes by itself every minute, and a touch or any button wakes
+    it; the display keeps its image through the sleep.</li>
+    <li><b>The times:</b> computed on the boot from the stored place. The ten-year table is gone, and the
+    arithmetic is checked against all 18,260 of its times on the PC.</li>
+    <li><b>The clock:</b> keeps UTC and has been set from the network on the bench.</li>
+  </ul>
+
+  <h3>1 · It keeps its own time <span class="muted">· now</span></h3>
+  <p>What the owner does: a first boot with nothing stored raises <code>Wakecue-XXXX</code>, the phone
+  opens the page the lamp serves, and they pick the network, the time zone and the place. The lamp keeps
+  all three, sets its clock from the network whenever the clock cannot be trusted, and computes the five
+  times for that place. The wall clock stops being Egypt's and becomes whatever the block says.</p>
+  <p><b>Gate:</b> with no cell fitted and the lamp unplugged, a phone alone brings the face to the right
+  local time and the right five times for a place that is not Cairo; a second unplug keeps all of it.</p>
+  <p><b>Trip-wire, written down before starting:</b> the radio needs allocation and an executor inside
+  the lamp. If a real phone cannot get an address from our own DHCP server within a couple of days of
+  bench work, that half moves to ESP-IDF and gets re-planned rather than fought.</p>
+
+  <h3>2 · It wakes you <span class="muted">· after 1</span></h3>
+  <p>The ring on GPIO10 through RMT with the ramp from <code>core::ramp</code>, the AO3400 rail switch on
+  GPIO5, and the MP3 card on GPIO20/21 playing the adhan from its own card. The alarm that already takes
+  the panel gets its sound and its light from the same call.</p>
+  <p><b>Gate:</b> at Fajr the lamp runs the ramp and plays the adhan, and any key or touch stops it; a
+  user alarm does the same at its own minute.</p>
+
+  <h3>3 · It ships <span class="muted">· after 2</span></h3>
+  <p>The difference between a bench and a lamp: a CR2032 with the DS3231 charge resistor lifted, so an
+  unplug no longer costs the time; a factory reset (hold Back at boot) so the lamp can be handed on; the
+  sleep current measured instead of estimated; the panel's hidden edge measured; and everything soldered
+  onto the 5×7 cm board in the base.</p>
+  <p><b>Gate:</b> the lamp on the shelf, unplugged for a day, still showing the right time; a measured
+  sleep current that matches the battery table; the board in the base, no breadboard.</p>
+
+  <h3>How we work</h3>
+  <ul>
+    <li><b>One move at a time.</b> A move ends when its gate has passed on the board — not when the code
+    lands and not when it builds.</li>
+    <li><b>Code time is not your time.</b> While a move is being built I write it, test it on the PC and
+    commit; you are pulled in at the gate, or when a decision needs your hands.</li>
+    <li><b>One bench session per gate,</b> written as numbered steps, with nothing else in flight.</li>
+    <li><b>The record moves with the gate.</b> When you report one, the build log and this section change
+    in the same commit.</li>
+  </ul>
+</section>
+
 
 <section id="overview">
   <h2>Overview</h2>
@@ -773,7 +833,7 @@ LowPower::new(p.LPWR).sleep_deep(RtcSleepConfig::deep());</pre></div>
 
 <section id="status">
   <h2>Build log</h2>
-  <p class="muted">Where the build stands on 6 Nov 2026, from what has actually been run on the real board. The ESP32-C3 SuperMini, a DS3231 board and a display have arrived, and the rest of order 1 has followed (ring, touch sensor, expander, battery parts, buttons, MP3 board, speaker, tools). The clock is wired, answers on the bus, keeps UTC, and wakes the chip from deep sleep on Alarm 1; the touch pad is wired too and wakes it on a touch, with both armed at once. The four menu buttons are read through the PCF8574 on the same two wires. The e-paper panel is wired and driven: it shows a frame written by <code>firmware_ws/wakecue</code>. The bench firmware also reads the clock's power-loss flag and starts the radio only when that flag says the time was lost. The lamp's own crate now runs its whole boot cycle on the board: wake, read <code>STATUS</code> and the time, pick the next event, arm Alarm 1, sleep. The menu walks on the panel and an alarm set from it takes the glass over when its minute comes. The scratch projects live in <code>scratch/</code> (<code>blink-test/</code>, <code>wifi-ntp/</code>) and are experiments, not the lamp firmware.</p>
+  <p class="muted">The record of what has actually been run on the real board, oldest first. It is history, not the plan: what comes next is in the <a href="#roadmap">roadmap</a>. As of 6 Nov 2026: The ESP32-C3 SuperMini, a DS3231 board and a display have arrived, and the rest of order 1 has followed (ring, touch sensor, expander, battery parts, buttons, MP3 board, speaker, tools). The clock is wired, answers on the bus, keeps UTC, and wakes the chip from deep sleep on Alarm 1; the touch pad is wired too and wakes it on a touch, with both armed at once. The four menu buttons are read through the PCF8574 on the same two wires. The e-paper panel is wired and driven: it shows a frame written by <code>firmware_ws/wakecue</code>. The bench firmware also reads the clock's power-loss flag and starts the radio only when that flag says the time was lost. The lamp's own crate now runs its whole boot cycle on the board: wake, read <code>STATUS</code> and the time, pick the next event, arm Alarm 1, sleep. The menu walks on the panel and an alarm set from it takes the glass over when its minute comes. The scratch projects live in <code>scratch/</code> (<code>blink-test/</code>, <code>wifi-ntp/</code>) and are experiments, not the lamp firmware.</p>
   <div class="tablewrap"><table style="min-width:680px">
     <thead><tr><th>Step</th><th>Result</th><th>What it showed</th></tr></thead>
     <tbody>
@@ -819,34 +879,14 @@ LowPower::new(p.LPWR).sleep_deep(RtcSleepConfig::deep());</pre></div>
     <li><b>Every wake is a reboot, so nothing survives in RAM.</b> The boot path is therefore: read <code>STATUS</code> (is <code>OSF</code> set?), read the time, compute the next event, program Alarm 1, clear <code>A1F</code>, sleep. Consuming an alarm and then sleeping without programming the next one means sleeping until someone presses a button.</li>
     <li><b>A wake pin must idle away from its wake level, and the firmware checks it.</b> A pin already sitting at its wake level when the sleep starts ends that sleep at once, and the board then looks like it cannot sleep at all. That is why the two pins take opposite levels — the clock's open-drain <code>SQW</code> is armed low, the pad's driven <code>OUT</code> is armed high — and why sleep entry first waits until both levels are clear, naming the pin that is holding them.</li>
   </ul>
-  <h3>Suggested next steps</h3>
-  <ol class="steps">
-    <li><span><b>Done · Make the DS3231 safe.</b> The coin cell is out, so nothing can reach it. The charge resistor is still fitted and the decision is deferred: it only matters before a cell goes back in, and then the choice is to remove it or to fit an LIR2032.</span></li>
-    <li><span><b>Done · Connect it.</b> <code>VCC</code> to 3V3, <code>GND</code> to <code>GND</code>, <code>SDA</code> to GPIO6, <code>SCL</code> to GPIO7, with female-to-female jumpers, 3.29 V confirmed at the clock’s <code>VCC</code> pin. <code>SQW</code> and <code>32K</code> stay unconnected until the wake test.</span></li>
-    <li><span><b>Done · Talk to it.</b> The bus scan finds <code>0x68</code> and <code>0x57</code>; the time was read with <code>parse_time_registers</code>, written from NTP with <code>time_registers</code> in one transaction, and read back matching to the second.</span></li>
-    <li><span><b>Done · Arm Alarm 1 without sleeping.</b> Programmed two minutes ahead, <code>A1F</code> cleared, <code>CONTROL_ALARM1_ONLY</code> written, and bit 0 of <code>STATUS</code> set on time. <code>SQW</code> on GPIO3 with the internal pull-up read 3.3 V idle and 0.02 V while the flag was set, then released when the flag was cleared.</span></li>
-    <li><span><b>Done · Wake from deep sleep through GPIO3.</b> The chip slept, the USB port vanished, and the alarm brought it back two minutes later, re-syncing and re-arming on the new boot.</span></li>
-    <li><span><b>Done · Wake the chip from the touch pad.</b> <code>OUT</code> on GPIO4 with no pull-up and a <b>high-level</b> wake, the opposite of the clock pin. With the alarm an hour out the chip slept, a touch brought the LED and the USB port back, and it went back to sleep once the pad was released; the two-minute alarm then woke the same build through GPIO3, so both wake sources hold at once.</span></li>
-    <li><span><b>Done · Read the clock's power-loss flag and clear it after a good write.</b> The two-second dark pause appears after an unplug and is gone after a flash-reset, so the flag is cleared by a boot that set the time and stays cleared while the clock keeps power. With the flag clear the radio is skipped and the wake is a flicker.</span></li>
-    <li><span><b>Test the battery.</b> Once the charging path is dealt with and the cell is refitted, unplug USB for 30 seconds, plug it back in and check that the time kept running.</span></li>
-    <li><span><b>Done · Draw on the display.</b> The 8-pin header is soldered, the eight wires follow the pin map, and <code>weact-studio-epd</code> in blocking mode put our own frame on the panel: <i>wakecue / display works / 250 × 122</i>, then the panel went back to sleep. <code>CS</code> is tied to ground, so the driver talks through a small write-only SPI shim rather than a SPI-device wrapper. Left on this gate: partial refresh, and the sleep current with the panel fitted.</span></li>
-    <li><span><b>Done · Read the four menu buttons.</b> The expander answers at <code>0x20</code> on the clock’s own two wires, and P0 to P3 printed <b>Up</b>, <b>Down</b>, <b>OK</b> and <b>Back</b> as they were pressed, one report per press after two matching reads.</span></li>
-    <li><span><b>Done · Run the lamp’s own boot path.</b> <code>firmware_ws/wakecue</code> woke on Alarm 1 through GPIO3, read the clock, found nothing due, cleared <code>A1F</code>, armed the next minute and slept — again and again, with no key pressed and the USB port gone in between. The one thing that had to be right by hand was the <code>SQW</code> wire: without it the same healthy-looking boot sleeps on a wake source nothing can fire.</span></li>
-    <li><span><b>Done · Give the schedule a prayer table.</b> Ten years of Cairo times are built into the image and the boot now chooses Fajr’s 15-minute ramp as its next event, hours ahead, instead of waking every minute. The day range is read from the file, so regenerating it with <code>just prayers</code> cannot silently shift the days. Still to watch: the 04:29 wake itself. The table itself has since left the image: the lamp computes those times from its stored place, and the old file survives only as the test that holds the arithmetic to it.</span></li>
-    <li><span><b>Done · Draw the clock face.</b> The panel now shows the Cairo time, the date and the next event, drawn from the clock on every wake, in landscape once the driver’s portrait buffer is rotated. What it cannot do is stay right: the image is whatever the last wake drew.</span></li>
-    <li><span><b>Done · Wake every minute to redraw the clock.</b> Alarm 1 is armed for the next minute, and each wake redraws with the fast waveform: the panel keeps its RAM across the chip’s deep sleep, so only a cold boot pays the two-second full refresh. The vendored driver patch is what allows that. Cost, pending measurement: about 0.3 mA averaged.</span></li>
-    <li><span><b>Done · Draw the menu.</b> The four buttons walk Top, Prayers, Alarms and Edit on the panel, one screen per state in <code>core::menu</code>, redrawn with the fast waveform on every press, and an alarm set from <i>My alarms</i> names itself on the face and takes the panel when its minute comes. The block that keeps those changes is in the tree now, so a toggle goes to flash instead of lasting until the lamp sleeps; its gate is the item below.</span></li>
-    <li><span><b>Done · Store the settings block.</b> Written and building, not yet run on the board. 212 bytes holding everything the lamp has to be told: the network and its password, the time zone and its summer-time rule, the place and the prayer method, which prayers ring and by how many minutes each is shifted, eight alarms, the light levels, the face and whether the lamp was on. It goes whole into whichever of two 4 KB sectors is <i>not</i> holding the newest good block, so a brown-out while saving costs the change and never the settings already stored; a CRC decides what is valid, and the layout grows by appending, so a field added later cannot strand a block already in the field. <code>core</code> tests every path on the PC, and <code>settings-tool</code> speaks the same encoder from there — <code>just settings-dump</code>/<code>show</code>/<code>build</code>/<code>write</code> — which is also the way out when the menu is stuck or the panel is dark. The gate: change a prayer toggle, let the lamp sleep, unplug it and plug it back in, and the toggle is still off; <code>just settings-show</code> agrees with the panel. The clock itself will be back at 2000 after that unplug, since there is still no cell and nothing yet goes to the network for the time. <b>Seen on the board, 6 Nov:</b> a prayer, switched off in the menu, was still off after the cable came out and went back in, which is the block surviving a power cut rather than a sleep.</span></li>
-    <li><span><b>Read a tap.</b> A touch already wakes the chip, but nothing downstream knows it was a touch rather than the clock — <code>A1F</code> answers that, since a clock wake leaves it set and a touch does not. With it, a tap can hold the lamp awake for <code>IDLE_SLEEP_MS</code>, poll the buttons, log what is pressed and let a one-second hold toggle the lamp. This is the ground floor of the menu; nothing is remembered across sleep until settings are written to flash, so a menu that changes something needs that step too.</span></li>
-    <li><span><b>Wire the ring.</b> The only output the lamp has that a person can see. Data on GPIO10 through RMT, the ramp from <code>core::ramp</code>, and the AO3400 rail switch on GPIO5 for the finished build. Milestone 1 part B lists its gates: the ramp at 4.2 V and at 3.2–3.5 V, ring current, and the rail-off draw back at the baseline measured in part A.</span></li>
-  </ol>
+  <p class="muted">What comes next is chosen in the <a href="#roadmap">roadmap</a>; this section only records what was run.</p>
 </section>
 
 <section id="plan">
-  <h2>Milestones</h2>
+  <h2>What to buy, and when</h2>
   <p>Buy the next row only after the one before has passed its gate, with one exception: stages 2 (sound) and 3 (display) do not depend on each other (the sound runs from the switched battery rail over GPIO20/21, the display from the 3.3 V pin over SPI), so do them in either order. Costs are parts only; the tools and the test supply are in the parts list. Nothing is paid for a stage that has not been proven.</p>
   <div class="tablewrap"><table style="min-width:760px">
-    <thead><tr><th>Milestone</th><th>Buy</th><th>Gate: all of this passes first</th><th class="num">EGP</th></tr></thead>
+    <thead><tr><th>Step</th><th>Buy</th><th>Gate: all of this passes first</th><th class="num">EGP</th></tr></thead>
     <tbody>
 <tr><td><b>0 · Firmware on the PC</b></td><td>Nothing. <b>Done 25 Oct 2026:</b> the Rust project is rebuilt in <code>firmware_ws/</code> (<code>core</code> and <code>prayer-gen</code>). The esp-hal firmware crate, the ring, e-paper, flash storage, button reading and minute-redraw code come with stages 1 and 3.</td><td><b>Passed.</b> 37 unit tests pass. The generated times for Cairo match the Aladhan calculator (Egyptian General Authority of Survey method) on all 122 days of January, March, June and September 2026: Fajr, Dhuhr, Maghrib and Isha are never earlier and 0 or 1 minute later; Asr ranges from 1 minute earlier to 2 later. That is a calculator, not a mosque timetable, so still compare a few dates with yours.</td><td class="num">0</td></tr>
 <tr><td><b>1 · Brain, clock, battery and light</b></td><td>ESP32-C3 SuperMini (Most), DS3231, 2 × TTP223, PCF8574 expander, 5 buttons, INA219, NCR18650B, holder, TP4056, CR2032, slide switch, headers, 2 capacitors, all resistors, wire, ring, 3 × AO3400, the LM2596 test supply, and the fallback parts (MT3608, 2 × AO3401, 2 × 1N5819WF). Plus the tools above (≈862 EGP).</td><td><b>Part A, before the ring is wired:</b> (a) Power LED removed from the SuperMini, LED and charge resistor from the DS3231. (b) Time set to UTC with <code>OSF</code> cleared afterwards, so the flag means what it says; Alarm 1 wakes the chip through GPIO3 and the touch pad through GPIO4; polarity of the TTP223 checked on the bench before soldering its A jumper. (c) Whole-board sleep current under 0.5 mA, measured on the 2 mA range with a jumper across the meter that you open only once the chip is asleep. (d) If the minute redraw is kept (DS3231 Alarm 2, with its A2F flag cleared as well), the average over ten minutes, including wakes, is written down and replaces the calculator default. (e) The cell charges through the TP4056 while the board runs. (f) The cell voltage at which the chip resets is found and written down. (g) Charge termination is judged with the lamp asleep: a running load can keep the TP4056 from ever seeing its end-of-charge current. (h) The USB-C cable used can carry data; a charge-only cable cannot flash the board. <b>Part B, then add the ring and the switch:</b> The ring ramps red to warm white in a dark room at 4.2 V and at 3.2–3.5 V (the LM2596 from a USB charger stands in for an empty cell; this checks the ring below its 3.5 V datasheet minimum). Ring current measured. Rail-off draw back at the baseline from part A; if it is not, current is leaking through the ring or player pins into the ESP32 while their ground is open, and the switch moves to the high side (the AO3401s are in the cart) before anything else is bought. No chip reset when the rail switches on (slow gate: 1 kΩ). If the first pixel glitches at 4.2 V, put a 1N5819WF Schottky (1 A, in the cart) in series with the ring supply. If colours fail below about 3.5 V, the ring and player move to a 5 V boost board (Makers MT3608 module, 25 EGP, in the cart); I found no 3.3 to 5 V level shifter at Makers, so that route also needs one from elsewhere.</td><td class="num">994.85 + 90 test supply</td></tr>
@@ -880,8 +920,8 @@ LowPower::new(p.LPWR).sleep_deep(RtcSleepConfig::deep());</pre></div>
 </section>
 
 <section id="todo">
-  <h2>Still to check</h2>
-  <p class="muted">Tested so far, on a computer only: the schedule logic, Egypt daylight saving, the DS3231 register encoding, the ramp and the MP3 commands (18 unit tests), and Fajr times within a minute of the Aladhan calculator on 122 days of 2026 (not yet against a mosque timetable).</p>
+  <h2>Open evidence</h2>
+  <p class="muted">Gaps only the board can close — not a plan, and not a to-do list: each one is a number or a sighting we do not have yet. What to work on next is the <a href="#roadmap">roadmap</a>.</p>
   <ul>
     <li><b>Firmware:</b> the logic (schedule, five prayers, menu, stored settings, button and battery decoding) is tested on the PC, and parts of it now run on the board (the LED ramp from <code>core</code>, Wi-Fi, NTP and the UTC-to-Cairo conversion, the e-paper frame, the clock and the four buttons; see the build log). What the lamp’s own boot path does on a wake now runs on the board, computes the five times for the place in its stored block, picks a real event from them, paints the face and lets a due alarm take the panel over, but nothing rings yet: the ring ramp and MP3 playback aren’t written. The settings block is read at boot and written when a screen saves, and a change now survives a power cut: a prayer switched off in the menu was still off after the lamp was unplugged and plugged back in.</li>
     <li><b>Low battery voltage:</b> the ring is rated from 3.5 V and the MP3 board recommends 4.5–5 V, but the cell runs 3.2–4.2 V. Milestones 1 and 2 test this; the fallback is a 5 V boost board.</li>
