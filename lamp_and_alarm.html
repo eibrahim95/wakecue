@@ -430,7 +430,7 @@ section{scroll-margin-top:16px}
 ];
 // days: bit 0 = Sunday … bit 6 = Saturday</pre></div>
   <h3>Buttons and menu</h3>
-  <p>The touch pad is the only thing that wakes the lamp. The four buttons are on the right-hand side, towards the back, and are read through the PCF8574 only while the lamp is awake: tap the pad, then press a button within ten seconds, or the lamp goes back to sleep. A tap shows the standby face and lights the globe at 5% so you can read it. A hold of one second turns the lamp on or off, and any touch stops an alarm that is ringing. <b>OK</b> on the standby face opens the menu; <b>Back</b> steps out one level and, on the standby face, does nothing.</p>
+  <p>The touch pad and any of the four buttons wake the lamp: the expander's interrupt shares the clock's wake line, so a press is as good as a tap. The buttons sit in a row under the screen and are read through the PCF8574 while the lamp is awake; ten seconds after the last press it goes back to sleep. A tap shows the standby face and lights the globe at 5% so you can read it. A hold of one second turns the lamp on or off, and any touch stops an alarm that is ringing. <b>OK</b> on the standby face opens the menu; <b>Back</b> steps out one level and, on the standby face, does nothing.</p>
   <figure>
     <div class="fig">
 <svg viewBox="0 0 760 340" role="img" aria-label="Mock-ups of the e-paper screens: the standby face with time, next prayer and the five prayer times; the menu; the prayer list with check boxes; the list of own alarms; the alarm editor; and the four button caps labelled Up, Down, OK and Back">
