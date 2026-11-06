@@ -63,6 +63,10 @@ pub const HEADER_LEN: usize = 12;
 pub const PAYLOAD_LEN: usize = 200;
 pub const STORED_LEN: usize = HEADER_LEN + PAYLOAD_LEN;
 
+/// How much of a sector a boot reads. The block, plus room for a field a later build appends, so
+/// the read stays two small buffers instead of two whole 4 KB sectors.
+pub const READ_LEN: usize = 512;
+
 const MAGIC: [u8; 4] = *b"WKS1";
 const VERSION: u8 = 1;
 

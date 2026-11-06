@@ -1550,6 +1550,7 @@ dependencies = [
  "esp-bootloader-esp-idf",
  "esp-hal",
  "esp-println",
+ "esp-storage",
  "lamp-core",
  "weact-studio-epd",
 ]

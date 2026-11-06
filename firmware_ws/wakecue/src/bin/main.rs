@@ -17,12 +17,15 @@ use esp_hal::rtc_cntl::sleep::{LowPower, RtcSleepConfig};
 use esp_hal::spi::master::{Config as SpiConfig, Spi};
 use esp_hal::time::Rate;
 use esp_println as _;
+use esp_storage::FlashStorage;
 use lamp_core::calendar::{FORMAT_LEN, format_minutes, utc_to_egypt};
 use lamp_core::buttons::{self, KeyReader};
 use lamp_core::ds3231;
 use lamp_core::schedule::{self, Action, Prayer, PrayerTable, Rule, When};
 use lamp_core::menu::{Menu, Screen};
-use lamp_core::settings::{MAX_RULES, Settings};
+use lamp_core::settings::{
+    MAX_RULES, READ_LEN, Sector, Settings, Stored, SECTOR_A, SECTOR_B, SECTOR_LEN, STORED_LEN,
+};
 use wakecue::display::{Face, PanelBus};
 
 /// Bench switch. `true` runs the whole boot — clock, schedule, alarm, face — and then stays
@@ -55,6 +58,56 @@ fn now_minutes(bus: &mut I2c<'static, esp_hal::Blocking>) -> i64 {
     bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_TIME], &mut t)
         .expect("read time");
     ds3231::parse_time_registers(t).div_euclid(60)
+}
+
+/// A byte buffer the flash ROM can take as it stands. Given a pointer it cannot align, it copies
+/// the write through a 4 KB sector buffer on the stack, which is a frame this file refuses to have.
+#[repr(align(4))]
+struct Words<const N: usize>([u8; N]);
+
+/// The block a sector holds, or nothing if it is blank, damaged or unreadable. Only the first
+/// [`READ_LEN`] bytes are read rather than the whole 4 KB: that is the block plus room for a field a
+/// later build appends, and the rest of the sector carries nothing.
+fn read_block(flash: &mut FlashStorage<'static>, at: u32) -> Option<Stored> {
+    let mut buf = Words::<READ_LEN>([0u8; READ_LEN]);
+    flash.read_nor(at, &mut buf.0).ok()?;
+    Stored::decode(&buf.0)
+}
+
+/// Store the settings in the sector that is not holding the newest good block, and update the two
+/// sectors to match what is now on the flash. The previous block is still there if this fails, so a
+/// brown-out during the erase costs the change, never the settings that were already stored.
+fn store(
+    flash: &mut FlashStorage<'static>,
+    sectors: &mut [Option<Stored>; 2],
+    settings: Settings,
+) -> bool {
+    let (sector, seq) = Stored::save_target(sectors[0].as_ref(), sectors[1].as_ref());
+    let block = Stored { seq, settings };
+    let at = sector.addr();
+    let slot = if sector == Sector::A { 0 } else { 1 };
+    let mut buf = Words::<STORED_LEN>([0u8; STORED_LEN]);
+    buf.0.copy_from_slice(&block.encode());
+
+    // Whatever happens below, this sector can no longer be spoken for: an erase that fails halfway
+    // or a write that lands short leaves bytes nobody should believe.
+    sectors[slot] = None;
+    if let Err(e) = flash.erase(at, at + SECTOR_LEN as u32) {
+        info!("settings: erase at {=u32:#06x} failed: {:?}", at, defmt::Debug2Format(&e));
+        return false;
+    }
+    if let Err(e) = flash.write_nor(at, &buf.0) {
+        info!("settings: write at {=u32:#06x} failed: {:?}", at, defmt::Debug2Format(&e));
+        return false;
+    }
+    sectors[slot] = Some(block);
+    info!(
+        "settings: sequence {} stored in sector {} ({=u32:#06x})",
+        seq,
+        if slot == 0 { "A" } else { "B" },
+        at
+    );
+    true
 }
 
 /// Clear the flag this boot owns and arm Alarm 1 for the next minute, which it returns.
@@ -97,6 +150,13 @@ fn main() -> ! {
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
     let delay = Delay::new();
+
+    // The stored settings, read before anything asks a question they answer. Nothing else in this
+    // build uses flash, so the two sectors inside the unused `nvs` partition are the lamp's alone.
+    let mut flash = FlashStorage::new(peripherals.FLASH);
+    let mut sectors = [read_block(&mut flash, SECTOR_A), read_block(&mut flash, SECTOR_B)];
+    let stored = Stored::newest(sectors[0], sectors[1]);
+    let settings = stored.map_or_else(Settings::default, |s| s.settings);
 
     // The display owns GPIO0, 1, 2, 8 and 9 (reset, busy, data/command, data, clock), so
     // this firmware never drives the onboard LED: it shares GPIO8 with the SPI data line.
@@ -152,6 +212,15 @@ fn main() -> ! {
         Stamp(utc_to_egypt(now_min)),
         DEV_MODE
     );
+    match stored {
+        Some(s) => info!(
+            "settings: sequence {} loaded, place {}, prayers {}",
+            s.seq,
+            s.settings.place_name(),
+            s.settings.prayers_on
+        ),
+        None => info!("settings: nothing stored, defaults"),
+    }
 
     // The prayer the face names, decided below; `None` means the clock cannot be trusted, so the
     // face says that instead of naming one.
@@ -162,8 +231,6 @@ fn main() -> ! {
         // does not trust; this branch becomes the "set the time" page.
         info!("osf set: time untrusted, arming a one-minute wake");
     } else {
-        // TODO: settings from flash once the menu and its pages exist.
-        let settings = Settings::default();
         let mut rules = [Rule {
             days: 0,
             when: When::Local(0),
@@ -284,7 +351,7 @@ fn main() -> ! {
         bus.write(buttons::PCF8574_ADDR, &[buttons::RELEASE_ALL])
             .expect("release expander pins");
         let mut reader = KeyReader::default();
-        let mut menu = Menu::new(Settings::default());
+        let mut menu = Menu::new(settings);
         let mut port = [0u8; 1];
         let mut last_touch = pad.is_high();
         let mut held_ms = 0u32;
@@ -306,9 +373,12 @@ fn main() -> ! {
                 );
                 let outcome = menu.press(key);
                 if outcome.save {
-                    // No flash write yet, so a change lasts until the lamp sleeps. This is the
-                    // line that becomes a call to store the settings block once storage exists.
-                    info!("settings changed; not stored yet");
+                    // The menu has already changed its own copy. This is the only place a block is
+                    // written, so the minute tick can never wear the flash out; a failed write
+                    // leaves the change in RAM and says so, and the lamp still goes to sleep.
+                    if !store(&mut flash, &mut sectors, menu.settings) {
+                        info!("settings: change kept in RAM only");
+                    }
                 }
                 if outcome.redraw {
                     match menu.screen {
