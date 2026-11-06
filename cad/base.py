@@ -1,4 +1,4 @@
-"""Fajr Lamp base: printable body + lid + TPU grip ring + TPU foot.
+"""Wakecue lamp base: printable body + lid + TPU grip ring + TPU foot.
 
 All sizes in mm. Natural orientation: z=0 is the underside of the base,
 z=50 the top the globe sits on, -y is the front with the e-paper.
@@ -53,7 +53,14 @@ COLLAR_Z0 = H - SEAT_DEPTH - 3.0   # 3 mm floor under the seat
 WIN_W, WIN_H, WIN_Z = 50.0, 25.0, 30.5       # e-paper window, high enough to clear the buttons
 EPD_W, EPD_H, EPD_T = 72.0, 30.0, 3.4         # WeAct 2.13 module + slack
 EPD_Z0 = WIN_Z - EPD_H / 2
-TOUCH_X, TOUCH_Z = 40.0, 24.0
+TOUCH_X, TOUCH_Z = 31.0, 8.5
+
+# the touch mark: two tiny lamps, one lit and one dark, engraved into the wall where the pad sits
+LAMP_DX = 3.2          # half the distance between the two lamp centres
+LAMP_R = 1.7           # bulb radius
+LAMP_BASE_W, LAMP_BASE_H = 1.4, 0.9
+LAMP_RING = 0.85       # the dark bulb is a ring this wide: a 0.5 mm groove gets closed by gap fill
+LAMP_ENGRAVE = 0.4     # how deep the mark is cut into the 2 mm front wall
 
 # four menu buttons in a row under the window: Up, Down, Ok, Back, left to right
 # (Mini Push Button 4-pin 6x6x5.5 mm: a 3.5 mm body and about 2 mm of stem)
@@ -185,8 +192,21 @@ def body():
     b += tilt(front) ^ clip
     b -= tilt(box(-WIN_W / 2, WIN_W / 2, FRONT_OUT - 3, FRONT_IN + 0.01,
                   WIN_Z - WIN_H / 2, WIN_Z + WIN_H / 2))
-    ring = (cyl(3.0, 0, 1) - cyl(2.2, -1, 2)).rotate((90, 0, 0))
-    b -= tilt(ring.translate((TOUCH_X, FRONT_OUT + 0.6, TOUCH_Z)))
+    # touch pad mark: two lamps, one lit and one dark, engraved into the 2 mm wall where the pad
+    # sits; the cut also thins the wall under the finger, which is what the sensor wants. The pad
+    # has to clear BTN_BLOCK_X (inside it the wall is 9.5 mm thick) and the mark stays well inboard
+    # of the tapered edge, where the flat face is 45 mm wide at this height
+    cut0, cut1 = FRONT_OUT - 1.0, FRONT_OUT + LAMP_ENGRAVE
+    bulb_z = TOUCH_Z + LAMP_BASE_H / 2         # centre the whole mark on the pad
+    base_top = bulb_z - LAMP_R + 0.3           # the base bites into the bulb, so the two merge
+    def lamp(cx, lit):
+        bulb = ycyl(LAMP_R, cut0, cut1, cx, bulb_z)
+        if not lit:                            # dark: the bulb is left in outline
+            bulb -= ycyl(LAMP_R - LAMP_RING, cut0 - 1, cut1 + 1, cx, bulb_z)
+        base = box(cx - LAMP_BASE_W / 2, cx + LAMP_BASE_W / 2, cut0, cut1,
+                   base_top - LAMP_BASE_H, base_top)
+        return bulb + base
+    b -= tilt(lamp(TOUCH_X - LAMP_DX, True) + lamp(TOUCH_X + LAMP_DX, False))
 
     # TP4056: USB-C notch open to the underside, guides that stop the board
     b -= box(-USB_W / 2, USB_W / 2, BACK_IN - 2, BACK_IN + WALL + 10, -1, USB_Z_TOP)
@@ -258,7 +278,7 @@ if __name__ == "__main__":
     parts = (("body", body()), ("lid", lid()), ("grip_tpu", grip_ring()), ("foot_tpu", foot()),
              ("button_cap", button_cap()))
     for name, part in parts:
-        t = save(part, out / f"fajr_{SHAPE}_{name}.stl")
+        t = save(part, out / f"wakecue_{SHAPE}_{name}.stl")
         bb = t.bounds
         print(f"{SHAPE:5s} {name:9s} watertight={t.is_watertight} "
               f"vol={t.volume / 1000:6.1f} cm3 size={np.round(bb[1] - bb[0], 1)}")
