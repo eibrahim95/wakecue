@@ -4,7 +4,7 @@ The one place that says where the build stands and what is in hand.
 `docs/` is reference and does not repeat any of this. Update this file in the
 same commit as the build-log row that changes it.
 
-Last updated: 7 Nov 2026
+Last updated: 8 Nov 2026
 
 ## Current move
 
@@ -39,6 +39,13 @@ Each line has a row in `docs/build-log.html`.
 - The prayer strip on the face: drawn on every face, but nobody has checked
   that its times and dots match the switches.
 - The 30 s deadline on the network phase: written, never seen firing.
+- The wall clock from the stored zone (`core::calendar::Zone`): the face, the alarms and the
+  prayer strip follow the offset and summer-time rule in the block instead of Egypt's, with the
+  none, egypt, europe and us rules. Checked on the PC (a Cairo sweep against the old function,
+  New York, London, Kolkata, the repeated and the missing hour); not yet seen on the glass.
+- The Time zone screen (top menu, third row): an hour row (-12 to +14), a minute row (00, 15, 30,
+  45) and a summer-time row, written to flash on Save. Tested as a state machine; not yet drawn
+  or pressed on the board.
 
 ## In hand
 

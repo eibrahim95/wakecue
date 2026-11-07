@@ -81,7 +81,7 @@ fn main() -> ! {
     let prayers = Place::new(settings.lat_e2, settings.lon_e2, settings.method());
     // The clock on the wall comes from the same block: the offset and summer-time rule the owner
     // picked, not Egypt's.
-    let zone = settings.zone();
+    let mut zone = settings.zone();
 
     // The display owns GPIO0, 1, 2, 8 and 9 (reset, busy, data/command, data, clock), so
     // this firmware never drives the onboard LED: it shares GPIO8 with the SPI data line.
@@ -351,7 +351,7 @@ fn main() -> ! {
                 );
                 if menu.screen == Screen::Home && now != shown_min && face.is_idle() {
                     shown_min = now;
-                    draw_clock(&mut face, now, &settings, &prayers, osf, false);
+                    draw_clock(&mut face, now, &menu.settings, &prayers, osf, false);
                 }
             }
             idle_ms = if busy { 0 } else { idle_ms + 20 };
@@ -368,7 +368,7 @@ fn main() -> ! {
                         shown_min = now;
                         // Fresh from the settings that were just changed: an alarm set from the
                         // menu has to be able to become the next thing the face names.
-                        draw_clock(&mut face, now, &settings, &prayers, osf, false);
+                        draw_clock(&mut face, now, &menu.settings, &prayers, osf, false);
                     }
                     _ => face.show_menu(&menu),
                 }
@@ -388,7 +388,8 @@ fn main() -> ! {
         // The window may have crossed a minute, and the alarm was armed before it. Redraw with
         // the corner mark on, so the last thing on the glass is the lamp going back to sleep.
         let later = clock::now_minutes(&mut i2c);
-        draw_clock(&mut face, later, &settings, &prayers, osf, true);
+        draw_clock(&mut face, later, &menu.settings, &prayers, osf, true);
+        zone = menu.settings.zone();
         wakes_at = clock::arm_next_minute(&mut i2c, later);
     }
 

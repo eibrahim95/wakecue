@@ -14,10 +14,10 @@ use esp_hal::delay::Delay;
 use esp_hal::gpio::{Input, Output};
 use esp_hal::spi::master::Spi;
 use lamp_core::calendar::{
-    COUNTDOWN_LEN, DATE_LEN, HHMM12_LEN, Zone, format_countdown, format_date, format_hhmm12,
-    meridiem,
+    COUNTDOWN_LEN, DATE_LEN, HHMM12_LEN, OFFSET_LEN, Zone, format_countdown, format_date,
+    format_hhmm12, format_offset, meridiem,
 };
-use lamp_core::menu::{Field, Menu, Screen, day_name};
+use lamp_core::menu::{Field, Menu, Screen, day_name, offset_parts};
 use lamp_core::schedule::Prayer;
 use lamp_core::settings::MAX_USER_ALARMS;
 use weact_studio_epd::graphics::{Display213BlackWhite, DisplayRotation};
@@ -333,8 +333,8 @@ impl Face {
             // Nothing to draw: the caller shows the clock face for Home.
             Screen::Home => {}
             Screen::Top { cursor } => {
-                for (i, label) in ["Prayers", "My alarms"].into_iter().enumerate() {
-                    let y = 44 + i as i32 * 24;
+                for (i, label) in ["Prayers", "My alarms", "Time zone"].into_iter().enumerate() {
+                    let y = 32 + i as i32 * 24;
                     if i as u8 == cursor {
                         let _ = Text::new(">", Point::new(12, y), small).draw(frame);
                     }
@@ -390,6 +390,32 @@ impl Face {
                     } else {
                         let _ = Text::new("empty", Point::new(34, y), small).draw(frame);
                     }
+                }
+            }
+            Screen::Zone { field, minutes, dst } => {
+                // The title carries the whole offset as it will read once saved, so the two
+                // rows below it can be checked against the number people know the zone by.
+                let mut title_buf = [0u8; OFFSET_LEN];
+                let offset = format_offset(minutes, &mut title_buf);
+                let _ = Text::new("Time zone  UTC", Point::new(14, 18), small).draw(frame);
+                let _ = Text::new(offset, Point::new(14 + 15 * 6, 18), small).draw(frame);
+                let (h, m) = offset_parts(minutes);
+                let ha = h.unsigned_abs();
+                let hour = [if minutes < 0 { b'-' } else { b'+' }, b'0' + (ha / 10) as u8, b'0' + (ha % 10) as u8];
+                let mut minute_buf = [0u8; 2];
+                let rows = [
+                    ("Hour", core::str::from_utf8(&hour).unwrap_or("")),
+                    ("Minute", two(m as u32, &mut minute_buf)),
+                    ("Summer time", dst.name()),
+                    ("Save", ""),
+                ];
+                for (i, (label, value)) in rows.into_iter().enumerate() {
+                    let y = 40 + i as i32 * 20;
+                    if i as u8 == field {
+                        let _ = Text::new(">", Point::new(12, y), small).draw(frame);
+                    }
+                    let _ = Text::new(label, Point::new(28, y), small).draw(frame);
+                    let _ = Text::new(value, Point::new(112, y), small).draw(frame);
                 }
             }
             Screen::Edit { slot, field, draft } => {

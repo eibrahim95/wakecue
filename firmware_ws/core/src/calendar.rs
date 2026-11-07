@@ -126,6 +126,27 @@ impl Zone {
     }
 }
 
+/// Width of the text `format_offset` writes.
+pub const OFFSET_LEN: usize = 6;
+
+/// A UTC offset as people write it: `+2:00`, `-3:30`, `+0:00`.
+pub fn format_offset(min: i16, buf: &mut [u8; OFFSET_LEN]) -> &str {
+    let a = min.unsigned_abs();
+    let (h, m) = (a / 60, a % 60);
+    let mut n = 0;
+    buf[n] = if min < 0 { b'-' } else { b'+' };
+    n += 1;
+    if h >= 10 {
+        buf[n] = b'0' + (h / 10) as u8;
+        n += 1;
+    }
+    buf[n] = b'0' + (h % 10) as u8;
+    buf[n + 1] = b':';
+    buf[n + 2] = b'0' + (m / 10) as u8;
+    buf[n + 3] = b'0' + (m % 10) as u8;
+    core::str::from_utf8(&buf[..n + 4]).unwrap_or("")
+}
+
 /// Width of the text `format_minutes` writes.
 pub const FORMAT_LEN: usize = 16;
 
@@ -322,6 +343,17 @@ mod tests {
 
     fn zone(std_min: i64, dst: Dst) -> Zone {
         Zone { std_min, dst }
+    }
+
+    #[test]
+    fn an_offset_reads_the_way_people_write_it() {
+        let mut b = [0u8; OFFSET_LEN];
+        assert_eq!(format_offset(120, &mut b), "+2:00");
+        assert_eq!(format_offset(0, &mut b), "+0:00");
+        assert_eq!(format_offset(-210, &mut b), "-3:30");
+        assert_eq!(format_offset(345, &mut b), "+5:45");
+        assert_eq!(format_offset(840, &mut b), "+14:00");
+        assert_eq!(format_offset(-720, &mut b), "-12:00");
     }
 
     #[test]
