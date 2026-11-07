@@ -1,6 +1,6 @@
-use crate::calendar::{egypt_offset_min, utc_to_egypt, weekday};
+use crate::calendar::{Zone, weekday};
 
-/// Bit 0 = Sunday .. bit 6 = Saturday, by the Egypt date of the event.
+/// Bit 0 = Sunday .. bit 6 = Saturday, by the local date of the event.
 pub const ALL_DAYS: u8 = 0b0111_1111;
 
 /// The five daily prayers, in table order.
@@ -36,7 +36,7 @@ impl Prayer {
 pub enum When {
     /// A prayer plus this many minutes (negative = before).
     Prayer(Prayer, i16),
-    /// Minutes after midnight, Egypt local time (summer time handled).
+    /// Minutes after midnight on the wall of the stored zone (summer time handled).
     Local(u16),
 }
 
@@ -80,15 +80,12 @@ pub trait PrayerTimes {
 }
 
 /// The instant (UTC minutes) when `rule` reaches its time on the UTC day `day`, if it does.
-fn target_min(rule: &Rule, day: i32, prayers: &impl PrayerTimes) -> Option<i64> {
+fn target_min(rule: &Rule, day: i32, prayers: &impl PrayerTimes, zone: Zone) -> Option<i64> {
     let base = day as i64 * 1440;
     match rule.when {
         When::Prayer(p, off) => Some(base + prayers.utc_min(p, day)? + off as i64),
-        When::Local(m) => {
-            // The Egypt offset can change on this very day, so test the day's local midnight.
-            let off = egypt_offset_min(base + m as i64 - 120);
-            Some(base + m as i64 - off)
-        }
+        // The offset can change on this very day, so the zone converts the wall time itself.
+        When::Local(m) => Some(zone.to_utc(base + m as i64)),
     }
 }
 
@@ -125,31 +122,32 @@ pub fn next_prayer(from_min: i64, prayers: &impl PrayerTimes) -> Option<(i64, Pr
 ///
 /// The day to ask for is the local date, not the UTC one: at 23:30 UTC the lamp is already in
 /// tomorrow's date and its strip should say so. `None` per prayer where the sun never gets there.
-pub fn local_times(now_min: i64, prayers: &impl PrayerTimes) -> [Option<i64>; 5] {
-    let day = utc_to_egypt(now_min).div_euclid(1440) as i32;
+pub fn local_times(now_min: i64, prayers: &impl PrayerTimes, zone: Zone) -> [Option<i64>; 5] {
+    let day = zone.to_local(now_min).div_euclid(1440) as i32;
     core::array::from_fn(|i| {
         let m = prayers.utc_min(Prayer::ALL[i], day)?;
-        // The offset in force at the prayer's own hour, so the two days a year the clocks change
-        // keep the right hour on either side of the switch.
-        Some(m + egypt_offset_min(day as i64 * 1440 + m - 120))
+        // The offset in force at the prayer's own instant, so the two days a year the clocks
+        // change keep the right hour on either side of the switch.
+        let at = day as i64 * 1440 + m;
+        Some(m + zone.offset_min(at))
     })
 }
 
 /// The earliest event whose start is at or after `from_min`. Looks three days ahead.
 /// The firmware asks with `now + 1` after running what is due, so an event is never programmed twice.
-pub fn next_event(from_min: i64, rules: &[Rule], prayers: &impl PrayerTimes) -> Option<Event> {
+pub fn next_event(from_min: i64, rules: &[Rule], prayers: &impl PrayerTimes, zone: Zone) -> Option<Event> {
     let first = from_min.div_euclid(1440) as i32 - 1;
     let mut best: Option<Event> = None;
     for day in first..first + 5 {
         for rule in rules {
-            let Some(target) = target_min(rule, day, prayers) else { continue };
+            let Some(target) = target_min(rule, day, prayers, zone) else { continue };
             let start = match rule.action {
                 Action::Sunrise { ramp_min } => target - ramp_min as i64,
                 _ => target,
             };
             if start < from_min { continue; }
-            // Weekday of the Egypt date of the target.
-            let local = target + egypt_offset_min(target);
+            // Weekday of the local date of the target.
+            let local = zone.to_local(target);
             let wd = weekday(local.div_euclid(1440) as i32);
             if rule.days & (1 << wd) == 0 { continue; }
             if best.is_none_or(|b| start < b.utc_min) {
@@ -164,6 +162,7 @@ pub fn next_event(from_min: i64, rules: &[Rule], prayers: &impl PrayerTimes) -> 
 mod tests {
     use super::*;
     use crate::calendar::days_from_civil;
+    use crate::settings::Dst;
 
     /// The old table file's shape, kept here as the test source of times: the lamp computes its own
     /// now, but a day with Fajr at 03:10 is still the clearest way to test a rule.
@@ -207,17 +206,17 @@ mod tests {
         // 10:00 UTC in winter: Cairo is +2, so 03:37 UTC reads as 05:37 and the rest follow.
         let now = days_from_civil(2026, 1, 1) as i64 * 1440 + 600;
         assert_eq!(
-            local_times(now, &t),
+            local_times(now, &t, Zone::CAIRO),
             [Some(337), Some(437), Some(537), Some(637), Some(737)]
         );
 
         // 23:30 UTC on 31 December is already 1 January in Cairo, so the strip is that day's.
         let new_year_eve = days_from_civil(2025, 12, 31) as i64 * 1440 + 23 * 60 + 30;
-        assert_eq!(local_times(new_year_eve, &t)[0], Some(337));
+        assert_eq!(local_times(new_year_eve, &t, Zone::CAIRO)[0], Some(337));
 
         // A day the table does not reach has nothing to show.
         let far = days_from_civil(2030, 1, 1) as i64 * 1440;
-        assert_eq!(local_times(far, &t), [None; 5]);
+        assert_eq!(local_times(far, &t, Zone::CAIRO), [None; 5]);
     }
 
     #[test]
@@ -264,15 +263,15 @@ mod tests {
         let t = table(&mut b, d, [190; 5]);
         let base = d as i64 * 1440;
 
-        let e = next_event(base, &RULES, &t).unwrap();
+        let e = next_event(base, &RULES, &t, Zone::CAIRO).unwrap();
         assert_eq!(e, Event { utc_min: base + 190 - 15, action: Action::Sunrise { ramp_min: 15 } });
 
-        let e = next_event(e.utc_min + 1, &RULES, &t).unwrap();
+        let e = next_event(e.utc_min + 1, &RULES, &t, Zone::CAIRO).unwrap();
         assert_eq!(e.utc_min, base + 190);
         assert!(matches!(e.action, Action::Play { .. }));
 
         // 07:30 Egypt on Sunday 25 Oct is still summer time (UTC+3) = 04:30 UTC.
-        let e = next_event(e.utc_min + 1, &RULES, &t).unwrap();
+        let e = next_event(e.utc_min + 1, &RULES, &t, Zone::CAIRO).unwrap();
         assert_eq!(e, Event { utc_min: base + 4 * 60 + 30, action: Action::Alarm { sound: 0 } });
     }
 
@@ -282,9 +281,9 @@ mod tests {
         let rules = [Rule { days: ALL_DAYS, when: When::Local(7 * 60 + 30), action: Action::Alarm { sound: 0 } }];
         let thu = days_from_civil(2026, 10, 29);
         let t = Fake { first_day: 0, data: &[] };
-        let e = next_event(thu as i64 * 1440, &rules, &t).unwrap();
+        let e = next_event(thu as i64 * 1440, &rules, &t, Zone::CAIRO).unwrap();
         assert_eq!(e.utc_min, thu as i64 * 1440 + 4 * 60 + 30);
-        let e = next_event(e.utc_min + 1, &rules, &t).unwrap();
+        let e = next_event(e.utc_min + 1, &rules, &t, Zone::CAIRO).unwrap();
         assert_eq!(e.utc_min, (thu as i64 + 1) * 1440 + 5 * 60 + 30);
     }
 
@@ -295,9 +294,9 @@ mod tests {
         let thu = days_from_civil(2026, 1, 8); // winter
         assert_eq!(weekday(thu), 4);
         let t = Fake { first_day: 0, data: &[] };
-        let e = next_event(thu as i64 * 1440 + 5 * 60, &rules, &t).unwrap();
+        let e = next_event(thu as i64 * 1440 + 5 * 60, &rules, &t, Zone::CAIRO).unwrap();
         assert_eq!(e.utc_min, thu as i64 * 1440 + 5 * 60 + 30);
-        let e = next_event(e.utc_min + 1, &rules, &t).unwrap();
+        let e = next_event(e.utc_min + 1, &rules, &t, Zone::CAIRO).unwrap();
         assert_eq!(e.utc_min, (thu as i64 + 3) * 1440 + 5 * 60 + 30);
     }
 
@@ -311,9 +310,9 @@ mod tests {
             Rule { days: ALL_DAYS, when: When::Prayer(Prayer::Isha, -10), action: Action::LampOn },
         ];
         let base = d as i64 * 1440;
-        let e = next_event(base, &rules, &t).unwrap();
+        let e = next_event(base, &rules, &t, Zone::CAIRO).unwrap();
         assert_eq!(e, Event { utc_min: base + 390, action: Action::Alarm { sound: 0 } });
-        let e = next_event(e.utc_min + 1, &rules, &t).unwrap();
+        let e = next_event(e.utc_min + 1, &rules, &t, Zone::CAIRO).unwrap();
         assert_eq!(e, Event { utc_min: base + 580, action: Action::LampOn });
     }
 
@@ -321,6 +320,88 @@ mod tests {
     fn no_events_when_there_are_no_prayer_times_and_only_fajr_rules() {
         let rules = [Rule { days: ALL_DAYS, when: When::Prayer(Prayer::Fajr, 0), action: Action::Alarm { sound: 0 } }];
         let t = Fake { first_day: 0, data: &[] };
-        assert_eq!(next_event(20454 * 1440, &rules, &t), None);
+        assert_eq!(next_event(20454 * 1440, &rules, &t, Zone::CAIRO), None);
+    }
+
+    fn alarm_at(h: u16, m: u16) -> [Rule; 1] {
+        [Rule { days: ALL_DAYS, when: When::Local(h * 60 + m), action: Action::Alarm { sound: 0 } }]
+    }
+
+    #[test]
+    fn a_local_alarm_rings_at_the_wall_time_of_the_stored_zone() {
+        // 07:00 in New York in July (UTC-4) is 11:00 UTC, in January (UTC-5) 12:00 UTC.
+        let ny = Zone { std_min: -300, dst: Dst::Us };
+        let none = Fake { first_day: 0, data: &[] };
+        let rules = alarm_at(7, 0);
+        let jul = days_from_civil(2026, 7, 1) as i64 * 1440;
+        assert_eq!(next_event(jul, &rules, &none, ny).unwrap().utc_min, jul + 11 * 60);
+        let jan = days_from_civil(2026, 1, 8) as i64 * 1440;
+        assert_eq!(next_event(jan, &rules, &none, ny).unwrap().utc_min, jan + 12 * 60);
+        // The same minute count in Cairo is a different alarm.
+        let cairo = next_event(jan, &rules, &none, Zone::CAIRO).unwrap();
+        assert_eq!(cairo.utc_min, jan + 5 * 60);
+    }
+
+    #[test]
+    fn a_local_alarm_follows_the_clock_across_us_and_europe_changes() {
+        let none = Fake { first_day: 0, data: &[] };
+        let rules = alarm_at(7, 0);
+        // New York, Sat 7 Mar 2026 is winter (12:00 UTC); Mon 9 Mar is summer (11:00 UTC).
+        let ny = Zone { std_min: -300, dst: Dst::Us };
+        let sat = days_from_civil(2026, 3, 7) as i64 * 1440;
+        let e = next_event(sat, &rules, &none, ny).unwrap();
+        assert_eq!(e.utc_min, sat + 12 * 60);
+        let e = next_event(e.utc_min + 1, &rules, &none, ny).unwrap();
+        assert_eq!(e.utc_min, sat + 1440 + 11 * 60); // Sun 8: the switch is at 07:00 UTC, so 07:00 is EDT
+        let e = next_event(e.utc_min + 1, &rules, &none, ny).unwrap();
+        assert_eq!(e.utc_min, sat + 2 * 1440 + 11 * 60);
+        // London, Sat 28 Mar is winter (07:00 UTC), Sun 29 is summer (06:00 UTC).
+        let london = Zone { std_min: 0, dst: Dst::Europe };
+        let sat = days_from_civil(2026, 3, 28) as i64 * 1440;
+        let e = next_event(sat, &rules, &none, london).unwrap();
+        assert_eq!(e.utc_min, sat + 7 * 60);
+        let e = next_event(e.utc_min + 1, &rules, &none, london).unwrap();
+        assert_eq!(e.utc_min, sat + 1440 + 6 * 60);
+    }
+
+    #[test]
+    fn an_alarm_in_the_hour_the_clocks_skip_rings_at_the_jump_not_never() {
+        // London, Sun 29 Mar 2026: 01:30 does not exist. It rings at the jump, 01:00 UTC.
+        let none = Fake { first_day: 0, data: &[] };
+        let london = Zone { std_min: 0, dst: Dst::Europe };
+        let sun = days_from_civil(2026, 3, 29) as i64 * 1440;
+        let e = next_event(sun, &alarm_at(1, 30), &none, london).unwrap();
+        assert_eq!(e.utc_min, sun + 60);
+        // Once, not twice: the next one is tomorrow's.
+        let e = next_event(e.utc_min + 1, &alarm_at(1, 30), &none, london).unwrap();
+        assert_eq!(e.utc_min, sun + 1440 + 30); // 01:30 BST = 00:30 UTC
+    }
+
+    #[test]
+    fn an_alarm_in_the_repeated_hour_rings_once() {
+        // London, Sun 25 Oct 2026: 01:30 happens at 00:30 UTC and again at 01:30 UTC. Once.
+        let none = Fake { first_day: 0, data: &[] };
+        let london = Zone { std_min: 0, dst: Dst::Europe };
+        let sun = days_from_civil(2026, 10, 25) as i64 * 1440;
+        let e = next_event(sun, &alarm_at(1, 30), &none, london).unwrap();
+        assert_eq!(e.utc_min, sun + 30);
+        let e = next_event(e.utc_min + 1, &alarm_at(1, 30), &none, london).unwrap();
+        assert_eq!(e.utc_min, sun + 1440 + 90);
+    }
+
+    #[test]
+    fn the_strip_reads_the_stored_zone_not_cairo() {
+        let mut b = [0u8; 50];
+        let t = table(&mut b, days_from_civil(2026, 1, 1), [217, 217, 217, 217, 217]);
+        let now = days_from_civil(2026, 1, 1) as i64 * 1440 + 600;
+        // Fajr 03:37 UTC reads 03:37 in London in winter and 12:07 in Tokyo.
+        let london = Zone { std_min: 0, dst: Dst::Europe };
+        assert_eq!(local_times(now, &t, london)[0], Some(217));
+        let tokyo = Zone { std_min: 540, dst: Dst::None };
+        assert_eq!(local_times(now, &t, tokyo)[0], Some(217 + 540));
+        // 23:30 UTC on 31 December is already 1 January in Tokyo, but still the 31st in London.
+        let eve = days_from_civil(2025, 12, 31) as i64 * 1440 + 23 * 60 + 30;
+        assert_eq!(local_times(eve, &t, tokyo)[0], Some(217 + 540));
+        assert_eq!(local_times(eve, &t, london)[0], None);
     }
 }

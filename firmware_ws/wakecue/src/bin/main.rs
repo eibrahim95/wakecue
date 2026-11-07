@@ -20,7 +20,7 @@ use esp_println as _;
 use esp_storage::FlashStorage;
 use lamp_core::astro::Place;
 use lamp_core::buttons::{self, KeyReader};
-use lamp_core::calendar::{FORMAT_LEN, format_minutes, utc_to_egypt};
+use lamp_core::calendar::{FORMAT_LEN, Zone, format_minutes};
 use lamp_core::ds3231;
 use lamp_core::menu::{Menu, Screen};
 use lamp_core::schedule::{self, Action, Prayer, PrayerTimes, Rule, When};
@@ -79,6 +79,9 @@ fn main() -> ! {
     // The five times are computed from the stored place on every boot: nothing about them is in
     // the image, so the place the owner picks is the place the lamp computes for.
     let prayers = Place::new(settings.lat_e2, settings.lon_e2, settings.method());
+    // The clock on the wall comes from the same block: the offset and summer-time rule the owner
+    // picked, not Egypt's.
+    let zone = settings.zone();
 
     // The display owns GPIO0, 1, 2, 8 and 9 (reset, busy, data/command, data, clock), so
     // this firmware never drives the onboard LED: it shares GPIO8 with the SPI data line.
@@ -121,12 +124,12 @@ fn main() -> ! {
     let woken = !esp_hal::rtc_cntl::wakeup_cause().is_empty();
     let by_hand = woken && !a1f;
     info!(
-        "boot: osf {}, woken {}, by hand {}, now {} UTC = {} Cairo, dev mode {}",
+        "boot: osf {}, woken {}, by hand {}, now {} UTC = {} local, dev mode {}",
         osf,
         woken,
         by_hand,
         Stamp(now_min),
-        Stamp(utc_to_egypt(now_min)),
+        Stamp(zone.to_local(now_min)),
         DEV_MODE
     );
     match stored {
@@ -162,19 +165,19 @@ fn main() -> ! {
         // The face names the next prayer of the five, whatever the switches say: it is a clock,
         // and the schedule below only answers "what will the lamp act on".
         face_next = next_up(now_min, &settings, &prayers);
-        today = schedule::local_times(now_min, &prayers);
+        today = schedule::local_times(now_min, &prayers, zone);
 
         // Anything whose time has arrived is this boot's job. The alarm fired, so the event
         // is at or before now; after running it, look again from the following minute.
         let mut from = now_min;
-        if let Some(due) = schedule::next_event(from, &rules[..count], &prayers)
+        if let Some(due) = schedule::next_event(from, &rules[..count], &prayers, zone)
             && due.utc_min <= now_min
         {
             info!(
-                "due: {:?} at {} UTC = {} Cairo",
+                "due: {:?} at {} UTC = {} local",
                 defmt::Debug2Format(&due.action),
                 Stamp(due.utc_min),
-                Stamp(utc_to_egypt(due.utc_min))
+                Stamp(zone.to_local(due.utc_min))
             );
             from = due.utc_min + 1;
             if matches!(due.action, Action::Play { .. } | Action::Alarm { .. }) {
@@ -182,13 +185,13 @@ fn main() -> ! {
             }
         }
 
-        match schedule::next_event(from, &rules[..count], &prayers) {
+        match schedule::next_event(from, &rules[..count], &prayers, zone) {
             Some(next) => {
                 info!(
-                    "next: {:?} at {} UTC = {} Cairo ({} min from now)",
+                    "next: {:?} at {} UTC = {} local ({} min from now)",
                     defmt::Debug2Format(&next.action),
                     Stamp(next.utc_min),
-                    Stamp(utc_to_egypt(next.utc_min)),
+                    Stamp(zone.to_local(next.utc_min)),
                     next.utc_min - now_min
                 );
             }
@@ -210,6 +213,7 @@ fn main() -> ! {
             today,
             prayers_on: settings.prayers_on,
             sleeping: !by_hand,
+            zone,
         });
     }
 
@@ -227,7 +231,7 @@ fn main() -> ! {
             Stamp(at),
             ALARM_MS / 1000
         );
-        let answered = run_alarm(&mut face, &mut i2c, &mut pad, title, at);
+        let answered = run_alarm(&mut face, &mut i2c, &mut pad, title, at, zone);
         info!(
             "alarm: {}",
             if answered {
@@ -435,9 +439,9 @@ fn main() -> ! {
     pad.listen(Event::HighLevel);
 
     info!(
-        "sleeping until {} UTC = {} Cairo",
+        "sleeping until {} UTC = {} local",
         Stamp(wakes_at),
-        Stamp(utc_to_egypt(wakes_at))
+        Stamp(zone.to_local(wakes_at))
     );
     let mut lp = LowPower::new(peripherals.LPWR);
     lp.sleep_deep(RtcSleepConfig::deep());
@@ -554,6 +558,7 @@ fn run_alarm(
     pad: &mut Input<'static>,
     title: &str,
     at: i64,
+    zone: Zone,
 ) -> bool {
     // The expander latches INT low on a press until its port is read, so start from a known
     // release rather than from whatever the wake left behind.
@@ -567,7 +572,7 @@ fn run_alarm(
     let mut waited = 0u32;
     let mut inverted = false;
     loop {
-        face.show_alarm(title, at, inverted);
+        face.show_alarm(title, at, zone, inverted);
         inverted = !inverted;
         waited += ALARM_BLINK_MS;
         if waited >= ALARM_MS {
@@ -594,7 +599,8 @@ fn draw_clock(
     sleeping: bool,
 ) {
     let mut face_next: Option<NextUp> = None;
-    let today = schedule::local_times(now, prayers);
+    let zone = settings.zone();
+    let today = schedule::local_times(now, prayers, zone);
     if !osf {
         face_next = next_up(now, settings, prayers);
     }
@@ -604,5 +610,6 @@ fn draw_clock(
         today,
         prayers_on: settings.prayers_on,
         sleeping,
+        zone,
     });
 }

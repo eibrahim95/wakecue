@@ -14,8 +14,8 @@ use esp_hal::delay::Delay;
 use esp_hal::gpio::{Input, Output};
 use esp_hal::spi::master::Spi;
 use lamp_core::calendar::{
-    COUNTDOWN_LEN, DATE_LEN, HHMM12_LEN, format_countdown, format_date, format_hhmm12, meridiem,
-    utc_to_egypt,
+    COUNTDOWN_LEN, DATE_LEN, HHMM12_LEN, Zone, format_countdown, format_date, format_hhmm12,
+    meridiem,
 };
 use lamp_core::menu::{Field, Menu, Screen, day_name};
 use lamp_core::schedule::Prayer;
@@ -53,6 +53,8 @@ pub struct Standby {
     pub prayers_on: u8,
     /// The lamp is about to go back down: draw the corner mark.
     pub sleeping: bool,
+    /// The clock on the wall: every time on the face is shown in it.
+    pub zone: Zone,
 }
 
 /// Width of the text [`hhmm12_short`] writes, `12:45p`.
@@ -173,7 +175,7 @@ impl Face {
         self.settle();
 
         // The clock keeps UTC; the face shows the time on the wall.
-        let local = utc_to_egypt(s.now_min);
+        let local = s.zone.to_local(s.now_min);
         let mut time_buf = [0u8; HHMM12_LEN];
         let mut date_buf = [0u8; DATE_LEN];
         let time = format_hhmm12(local, &mut time_buf);
@@ -205,7 +207,7 @@ impl Face {
                     NextUp::Prayer(at, _) => at,
                     NextUp::Alarm(at) => at,
                 };
-                let local_at = utc_to_egypt(at);
+                let local_at = s.zone.to_local(at);
                 let mut at_buf = [0u8; HHMM12_LEN];
                 let at_text = format_hhmm12(local_at, &mut at_buf);
                 // A time shown at 10:43 reading "Fajr 4:44" has to say it is tomorrow's.
@@ -281,12 +283,12 @@ impl Face {
     /// This is a stand-in for the ring and the card, not a design in its own right: the caller
     /// flashes it until the alarm is answered, and the sound and the light will be driven from the
     /// same place.
-    pub fn show_alarm(&mut self, title: &str, at: i64, inverted: bool) {
+    pub fn show_alarm(&mut self, title: &str, at: i64, zone: Zone, inverted: bool) {
         if !self.ready {
             return;
         }
         self.settle();
-        let local = utc_to_egypt(at);
+        let local = zone.to_local(at);
         let mut time_buf = [0u8; HHMM12_LEN];
         let time = format_hhmm12(local, &mut time_buf);
         let ampm = meridiem(local);

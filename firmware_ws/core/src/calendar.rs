@@ -1,5 +1,7 @@
 //! Day numbers are days since 1970-01-01 (the Unix epoch); minutes are minutes since it, in UTC.
 
+use crate::settings::Dst;
+
 pub fn days_from_civil(y: i32, m: u32, d: u32) -> i32 {
     let y = if m <= 2 { y - 1 } else { y };
     let era = y.div_euclid(400);
@@ -35,22 +37,93 @@ fn last_weekday(y: i32, m: u32, wd: u8) -> i32 {
     last - (weekday(last) + 7 - wd) as i32 % 7
 }
 
-/// Egypt's summer time (law 2023): from 00:00 on the last Friday of April
-/// until 24:00 on the last Thursday of October (so it ends at 00:00 Friday).
-/// Returns the UTC offset in minutes: 120 in winter, 180 in summer.
-pub fn egypt_offset_min(utc_min: i64) -> i64 {
-    let day = utc_min.div_euclid(1440) as i32;
-    let (y, _, _) = civil_from_days(day);
-    // Start: local 00:00 Friday (UTC+2) = 22:00 UTC the day before.
-    let start = (last_weekday(y, 4, 5) as i64) * 1440 - 120;
-    // End: local 24:00 Thursday in summer time (UTC+3) = 21:00 UTC that Thursday.
-    let end = (last_weekday(y, 10, 4) as i64) * 1440 + 21 * 60;
-    if utc_min >= start && utc_min < end { 180 } else { 120 }
+/// Day number of the `n`th given weekday (0 = Sunday) of a month, counting from 1.
+fn nth_weekday(y: i32, m: u32, wd: u8, n: i32) -> i32 {
+    let first = days_from_civil(y, m, 1);
+    first + (wd + 7 - weekday(first)) as i32 % 7 + 7 * (n - 1)
 }
 
-/// Minutes of local (Egypt) time for a UTC minute count.
-pub fn utc_to_egypt(utc_min: i64) -> i64 {
-    utc_min + egypt_offset_min(utc_min)
+/// A place's clock: the offset from UTC in winter, and the rule that adds an hour in summer.
+///
+/// Every conversion between the clock's UTC minutes and the minutes on the wall goes through one of
+/// these, built from the stored settings ([`crate::settings::Settings::zone`]). The rules are the
+/// northern-hemisphere ones; summer time is always standard plus 60 minutes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Zone {
+    /// The offset from UTC without summer time, in minutes: +2:00 is 120.
+    pub std_min: i64,
+    pub dst: Dst,
+}
+
+impl Zone {
+    /// Cairo as the lamp shipped: +2:00 with Egypt's summer time.
+    pub const CAIRO: Zone = Zone { std_min: 120, dst: Dst::Egypt };
+
+    /// The UTC offset in minutes at a UTC minute.
+    ///
+    /// - Egypt (law 2023): from 00:00 on the last Friday of April until 24:00 on the last Thursday
+    ///   of October, both in the zone's own clock.
+    /// - Europe: from 01:00 UTC on the last Sunday of March until 01:00 UTC on the last Sunday of
+    ///   October, the same instant in every zone.
+    /// - US: from 02:00 local standard time on the second Sunday of March until 02:00 local
+    ///   summer time on the first Sunday of November.
+    pub fn offset_min(self, utc_min: i64) -> i64 {
+        let summer = self.std_min + 60;
+        let (start, end) = match self.dst {
+            Dst::None => return self.std_min,
+            Dst::Egypt => {
+                let y = civil_from_days(utc_min.div_euclid(1440) as i32).0;
+                (
+                    last_weekday(y, 4, 5) as i64 * 1440 - self.std_min,
+                    (last_weekday(y, 10, 4) as i64 + 1) * 1440 - summer,
+                )
+            }
+            Dst::Europe => {
+                let y = civil_from_days(utc_min.div_euclid(1440) as i32).0;
+                (
+                    last_weekday(y, 3, 0) as i64 * 1440 + 60,
+                    last_weekday(y, 10, 0) as i64 * 1440 + 60,
+                )
+            }
+            Dst::Us => {
+                let y = civil_from_days(utc_min.div_euclid(1440) as i32).0;
+                (
+                    nth_weekday(y, 3, 0, 2) as i64 * 1440 + 120 - self.std_min,
+                    nth_weekday(y, 11, 0, 1) as i64 * 1440 + 120 - summer,
+                )
+            }
+        };
+        if utc_min >= start && utc_min < end { summer } else { self.std_min }
+    }
+
+    /// Minutes on the wall for a UTC minute count.
+    pub fn to_local(self, utc_min: i64) -> i64 {
+        utc_min + self.offset_min(utc_min)
+    }
+
+    /// The UTC minute at which the wall reads `local_min`.
+    ///
+    /// Twice a year that is not one minute. When the clocks go back, an hour of wall time happens
+    /// twice and this answers its first pass, so an alarm in that hour rings once. When they go
+    /// forward, an hour never happens and this answers the instant the clocks jump, so an alarm in
+    /// the missing hour rings at the first minute after it instead of being lost.
+    pub fn to_utc(self, local_min: i64) -> i64 {
+        let summer = self.std_min + 60;
+        if self.dst == Dst::None {
+            return local_min - self.std_min;
+        }
+        // Summer first: where both readings are real, it is the earlier instant.
+        let early = local_min - summer;
+        if self.offset_min(early) == summer {
+            return early;
+        }
+        let late = local_min - self.std_min;
+        if self.offset_min(late) == self.std_min {
+            return late;
+        }
+        // Neither: the wall time was skipped. The jump lies between the two readings.
+        (early..=late).find(|&t| self.offset_min(t) == summer).unwrap_or(late)
+    }
 }
 
 /// Width of the text `format_minutes` writes.
@@ -73,7 +146,7 @@ fn append(buf: &mut [u8], at: &mut usize, s: &str) {
 
 /// Write `min` (minutes since the Unix epoch) as `YYYY-MM-DD HH:MM` into `buf` and return it.
 ///
-/// No zone is applied: pass UTC for UTC, or `utc_to_egypt(min)` for Cairo. Written for the
+/// No zone is applied: pass UTC for UTC, or `Zone::to_local` for a place. Written for the
 /// 1970-01-01..2100 range the clock can hold; a time before it would print a nonsense year.
 pub fn format_minutes(min: i64, buf: &mut [u8; FORMAT_LEN]) -> &str {
     let (y, mo, d) = civil_from_days(min.div_euclid(1440) as i32);
@@ -238,13 +311,116 @@ mod tests {
     #[test]
     fn dst_2026() {
         // Starts Fri 24 Apr 2026 00:00 local (= 22:00 UTC on the 23rd).
-        assert_eq!(egypt_offset_min(utc(2026, 4, 23, 21, 59)), 120);
-        assert_eq!(egypt_offset_min(utc(2026, 4, 23, 22, 0)), 180);
+        assert_eq!(Zone::CAIRO.offset_min(utc(2026, 4, 23, 21, 59)), 120);
+        assert_eq!(Zone::CAIRO.offset_min(utc(2026, 4, 23, 22, 0)), 180);
         // Ends Thu 29 Oct 2026 24:00 local (= 21:00 UTC on the 29th).
-        assert_eq!(egypt_offset_min(utc(2026, 10, 29, 20, 59)), 180);
-        assert_eq!(egypt_offset_min(utc(2026, 10, 29, 21, 0)), 120);
-        assert_eq!(egypt_offset_min(utc(2026, 7, 1, 0, 0)), 180);
-        assert_eq!(egypt_offset_min(utc(2026, 1, 1, 0, 0)), 120);
+        assert_eq!(Zone::CAIRO.offset_min(utc(2026, 10, 29, 20, 59)), 180);
+        assert_eq!(Zone::CAIRO.offset_min(utc(2026, 10, 29, 21, 0)), 120);
+        assert_eq!(Zone::CAIRO.offset_min(utc(2026, 7, 1, 0, 0)), 180);
+        assert_eq!(Zone::CAIRO.offset_min(utc(2026, 1, 1, 0, 0)), 120);
+    }
+
+    fn zone(std_min: i64, dst: Dst) -> Zone {
+        Zone { std_min, dst }
+    }
+
+    #[test]
+    fn no_summer_time_never_shifts() {
+        for (std, at) in [(180, utc(2026, 7, 1, 0, 0)), (-210, utc(2026, 1, 1, 0, 0)), (0, utc(2026, 4, 24, 0, 0))] {
+            let z = zone(std, Dst::None);
+            assert_eq!(z.offset_min(at), std);
+            assert_eq!(z.to_local(at), at + std);
+            assert_eq!(z.to_utc(at + std), at);
+        }
+    }
+
+    #[test]
+    fn egypt_rule_follows_another_standard_offset() {
+        // The same rule one hour east: it starts and ends one hour of UTC earlier.
+        let z = zone(180, Dst::Egypt);
+        assert_eq!(z.offset_min(utc(2026, 4, 23, 20, 59)), 180);
+        assert_eq!(z.offset_min(utc(2026, 4, 23, 21, 0)), 240);
+        assert_eq!(z.offset_min(utc(2026, 10, 29, 19, 59)), 240);
+        assert_eq!(z.offset_min(utc(2026, 10, 29, 20, 0)), 180);
+    }
+
+    #[test]
+    fn europe_switches_at_one_utc_in_every_zone() {
+        // 2026: last Sunday of March is the 29th, of October the 25th.
+        for std in [0, 60, 120] {
+            let z = zone(std, Dst::Europe);
+            assert_eq!(z.offset_min(utc(2026, 3, 29, 0, 59)), std);
+            assert_eq!(z.offset_min(utc(2026, 3, 29, 1, 0)), std + 60);
+            assert_eq!(z.offset_min(utc(2026, 10, 25, 0, 59)), std + 60);
+            assert_eq!(z.offset_min(utc(2026, 10, 25, 1, 0)), std);
+            assert_eq!(z.offset_min(utc(2026, 7, 1, 12, 0)), std + 60);
+            assert_eq!(z.offset_min(utc(2026, 12, 25, 12, 0)), std);
+        }
+        // 2027: 28 March and 31 October.
+        let london = zone(0, Dst::Europe);
+        assert_eq!(london.offset_min(utc(2027, 3, 28, 0, 59)), 0);
+        assert_eq!(london.offset_min(utc(2027, 3, 28, 1, 0)), 60);
+        assert_eq!(london.offset_min(utc(2027, 10, 31, 1, 0)), 0);
+    }
+
+    #[test]
+    fn us_switches_at_two_local() {
+        // New York is -5:00. 2026: second Sunday of March is the 8th, first of November the 1st.
+        let ny = zone(-300, Dst::Us);
+        // 02:00 EST = 07:00 UTC.
+        assert_eq!(ny.offset_min(utc(2026, 3, 8, 6, 59)), -300);
+        assert_eq!(ny.offset_min(utc(2026, 3, 8, 7, 0)), -240);
+        // 02:00 EDT = 06:00 UTC.
+        assert_eq!(ny.offset_min(utc(2026, 11, 1, 5, 59)), -240);
+        assert_eq!(ny.offset_min(utc(2026, 11, 1, 6, 0)), -300);
+        // 2027: 14 March and 7 November.
+        assert_eq!(ny.offset_min(utc(2027, 3, 14, 7, 0)), -240);
+        assert_eq!(ny.offset_min(utc(2027, 11, 7, 6, 0)), -300);
+        // A half-hour standard offset moves the instant with it.
+        let st_johns = zone(-210, Dst::Us);
+        assert_eq!(st_johns.offset_min(utc(2026, 3, 8, 5, 29)), -210);
+        assert_eq!(st_johns.offset_min(utc(2026, 3, 8, 5, 30)), -150);
+    }
+
+    #[test]
+    fn a_wall_time_that_happens_once_converts_both_ways() {
+        for z in [Zone::CAIRO, zone(0, Dst::Europe), zone(-300, Dst::Us), zone(-210, Dst::None)] {
+            for t in [utc(2026, 1, 15, 12, 0), utc(2026, 7, 15, 12, 0), utc(2026, 4, 1, 3, 17)] {
+                assert_eq!(z.to_utc(z.to_local(t)), t, "{z:?} at {t}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_repeated_hour_is_the_first_pass() {
+        // London, 25 Oct 2026: at 01:00 UTC the wall goes from 02:00 back to 01:00, so 01:30
+        // happens at 00:30 UTC (summer) and again at 01:30 UTC (winter). The alarm takes the first.
+        let london = zone(0, Dst::Europe);
+        assert_eq!(london.to_utc(utc(2026, 10, 25, 1, 30)), utc(2026, 10, 25, 0, 30));
+        // Cairo, 29 Oct 2026: 23:30 happens at 20:30 UTC (summer) and again at 21:30 UTC.
+        let wall = utc(2026, 10, 29, 23, 30);
+        assert_eq!(Zone::CAIRO.to_utc(wall), utc(2026, 10, 29, 20, 30));
+        // Outside the repeated hour nothing is ambiguous.
+        assert_eq!(Zone::CAIRO.to_utc(utc(2026, 10, 29, 22, 59)), utc(2026, 10, 29, 19, 59));
+        assert_eq!(Zone::CAIRO.to_utc(utc(2026, 10, 30, 0, 0)), utc(2026, 10, 29, 22, 0));
+    }
+
+    #[test]
+    fn the_missing_hour_is_the_instant_the_clocks_jump() {
+        // London, 29 Mar 2026: at 01:00 UTC the wall jumps from 01:00 to 02:00, so 01:30 never
+        // happens. The alarm rings at the jump, when the wall reads 02:00.
+        let london = zone(0, Dst::Europe);
+        let jump = utc(2026, 3, 29, 1, 0);
+        assert_eq!(london.to_utc(utc(2026, 3, 29, 1, 30)), jump);
+        assert_eq!(london.to_utc(utc(2026, 3, 29, 1, 0)), jump);
+        assert_eq!(london.to_local(jump), utc(2026, 3, 29, 2, 0));
+        // The minute before the gap and the first minute after it are plain.
+        assert_eq!(london.to_utc(utc(2026, 3, 29, 0, 59)), utc(2026, 3, 29, 0, 59));
+        assert_eq!(london.to_utc(utc(2026, 3, 29, 2, 0)), jump);
+        // Cairo, 24 Apr 2026: 00:00 Friday never happens as such, the wall goes 23:59 -> 01:00.
+        let cairo_jump = utc(2026, 4, 23, 22, 0);
+        assert_eq!(Zone::CAIRO.to_utc(utc(2026, 4, 24, 0, 30)), cairo_jump);
+        assert_eq!(Zone::CAIRO.to_local(cairo_jump), utc(2026, 4, 24, 1, 0));
     }
 
     #[test]
@@ -265,9 +441,9 @@ mod tests {
         let mut b = [0u8; FORMAT_LEN];
         let winter = utc(2026, 11, 4, 23, 9);
         assert_eq!(format_minutes(winter, &mut b), "2026-11-04 23:09");
-        assert_eq!(format_minutes(utc_to_egypt(winter), &mut b), "2026-11-05 01:09");
+        assert_eq!(format_minutes(Zone::CAIRO.to_local(winter), &mut b), "2026-11-05 01:09");
         let summer = utc(2026, 7, 1, 23, 9);
-        assert_eq!(format_minutes(utc_to_egypt(summer), &mut b), "2026-07-02 02:09");
+        assert_eq!(format_minutes(Zone::CAIRO.to_local(summer), &mut b), "2026-07-02 02:09");
     }
 
     #[test]
@@ -289,7 +465,7 @@ mod tests {
     fn the_date_follows_cairo_past_midnight() {
         let mut date = [0u8; DATE_LEN];
         let mut hhmm = [0u8; HHMM_LEN];
-        let local = utc_to_egypt(utc(2026, 11, 4, 23, 16));
+        let local = Zone::CAIRO.to_local(utc(2026, 11, 4, 23, 16));
         assert_eq!(format_date(local, &mut date), "Thu 5 Nov 2026");
         assert_eq!(format_hhmm(local, &mut hhmm), "01:16");
     }
@@ -314,9 +490,9 @@ mod tests {
     #[test]
     fn dst_2027() {
         // Last Friday of April 2027 is the 30th; last Thursday of October 2027 is the 28th.
-        assert_eq!(egypt_offset_min(utc(2027, 4, 29, 21, 59)), 120);
-        assert_eq!(egypt_offset_min(utc(2027, 4, 29, 22, 0)), 180);
-        assert_eq!(egypt_offset_min(utc(2027, 10, 28, 20, 59)), 180);
-        assert_eq!(egypt_offset_min(utc(2027, 10, 28, 21, 0)), 120);
+        assert_eq!(Zone::CAIRO.offset_min(utc(2027, 4, 29, 21, 59)), 120);
+        assert_eq!(Zone::CAIRO.offset_min(utc(2027, 4, 29, 22, 0)), 180);
+        assert_eq!(Zone::CAIRO.offset_min(utc(2027, 10, 28, 20, 59)), 180);
+        assert_eq!(Zone::CAIRO.offset_min(utc(2027, 10, 28, 21, 0)), 120);
     }
 }

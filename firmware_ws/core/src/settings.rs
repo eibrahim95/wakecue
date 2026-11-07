@@ -47,7 +47,7 @@
 //!   194     2  snooze until, minutes after midnight
 //!   196    16  reserved, zero
 //! ```
-use crate::calendar::{egypt_offset_min, utc_to_egypt, weekday};
+use crate::calendar::{Zone, weekday};
 use crate::schedule::{Action, Prayer, Rule, When, ALL_DAYS};
 
 pub const MAX_USER_ALARMS: usize = 8;
@@ -362,6 +362,11 @@ impl Settings {
         set_str(&mut self.place, s)
     }
 
+    /// The clock on the wall: the stored offset and summer-time rule.
+    pub fn zone(&self) -> Zone {
+        Zone { std_min: self.utc_offset_min as i64, dst: self.dst }
+    }
+
     pub fn prayer_on(&self, p: Prayer) -> bool {
         self.prayers_on & (1 << p.index()) != 0
     }
@@ -375,7 +380,8 @@ impl Settings {
     /// ring has no business being named as the next thing the lamp does. Looks eight days ahead,
     /// which covers a weekly mask plus today.
     pub fn next_alarm(&self, from_utc_min: i64) -> Option<(i64, UserAlarm)> {
-        let local_now = utc_to_egypt(from_utc_min);
+        let zone = self.zone();
+        let local_now = zone.to_local(from_utc_min);
         let today = local_now.div_euclid(1440) as i32;
         for ahead in 0..8 {
             let date = today + ahead;
@@ -386,9 +392,9 @@ impl Settings {
                     continue;
                 }
                 let local = date as i64 * 1440 + a.minute as i64;
-                // The offset in force at that hour, the same way the schedule converts a local
-                // alarm time, so the two agree to the minute across a summer-time change.
-                let utc = local - egypt_offset_min(local - 120);
+                // The same conversion the schedule uses for a local alarm time, so the two agree
+                // to the minute across a summer-time change.
+                let utc = zone.to_utc(local);
                 if utc >= from_utc_min && best.is_none_or(|(b, _)| utc < b) {
                     best = Some((utc, *a));
                 }
@@ -892,6 +898,29 @@ mod tests {
             s.next_alarm(fri * 1440 + 9 * 60 - 120).map(|(at, _)| at),
             Some(sun * 1440 + 7 * 60 - 120)
         );
+    }
+
+    #[test]
+    fn the_stored_zone_decides_when_an_alarm_is_due() {
+        let mut s = Settings::default();
+        s.alarms[0] =
+            UserAlarm { used: true, enabled: true, days: ALL_DAYS, minute: 7 * 60, ..UserAlarm::EMPTY };
+        assert_eq!(s.zone(), Zone::CAIRO);
+
+        // The same block moved to London: 07:00 on 1 July is 06:00 UTC (summer), on 8 January
+        // 07:00 UTC, whatever Cairo would have said.
+        s.utc_offset_min = 0;
+        s.dst = Dst::Europe;
+        assert_eq!(s.zone(), Zone { std_min: 0, dst: Dst::Europe });
+        let july1 = days_from_civil(2026, 7, 1) as i64 * 1440;
+        assert_eq!(s.next_alarm(july1).map(|(at, _)| at), Some(july1 + 6 * 60));
+        let jan8 = days_from_civil(2026, 1, 8) as i64 * 1440;
+        assert_eq!(s.next_alarm(jan8).map(|(at, _)| at), Some(jan8 + 7 * 60));
+
+        // And to a zone with no summer time and a half-hour offset: Kolkata, +5:30.
+        s.utc_offset_min = 330;
+        s.dst = Dst::None;
+        assert_eq!(s.next_alarm(july1).map(|(at, _)| at), Some(july1 + 60 + 30));
     }
 
     #[test]
