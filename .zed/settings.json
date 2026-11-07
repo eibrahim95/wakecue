@@ -1,0 +1,12 @@
+{
+  "lsp": {
+    "rust-analyzer": {
+      "initialization_options": {
+        "linkedProjects": [
+          "firmware_ws/Cargo.toml",
+          "firmware_ws/wakecue/Cargo.toml"
+        ]
+      }
+    }
+  }
+}

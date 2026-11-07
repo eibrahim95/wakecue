@@ -1,5 +1,6 @@
 # The lamp firmware. `just` builds and flashes it; `just monitor` reads the defmt
 # log while the chip is awake (the port disappears the moment it sleeps).
+set dotenv-load
 
 bin := "target/riscv32imc-unknown-none-elf/release/wakecue"
 

@@ -18,21 +18,17 @@ use esp_hal::spi::master::{Config as SpiConfig, Spi};
 use esp_hal::time::Rate;
 use esp_println as _;
 use esp_storage::FlashStorage;
-use lamp_core::calendar::{FORMAT_LEN, format_minutes, utc_to_egypt};
-use lamp_core::buttons::{self, KeyReader};
-use lamp_core::ds3231;
 use lamp_core::astro::Place;
-use lamp_core::schedule::{self, Action, Prayer, PrayerTimes, Rule, When};
+use lamp_core::buttons::{self, KeyReader};
+use lamp_core::calendar::{FORMAT_LEN, format_minutes, utc_to_egypt};
+use lamp_core::ds3231;
 use lamp_core::menu::{Menu, Screen};
+use lamp_core::schedule::{self, Action, Prayer, PrayerTimes, Rule, When};
 use lamp_core::settings::{
-    MAX_RULES, READ_LEN, Sector, Settings, Stored, SECTOR_A, SECTOR_B, SECTOR_LEN, STORED_LEN,
+    MAX_RULES, READ_LEN, SECTOR_A, SECTOR_B, SECTOR_LEN, STORED_LEN, Sector, Settings, Stored,
 };
+use wakecue::clock;
 use wakecue::display::{Face, NextUp, PanelBus, Standby};
-
-/// Bench switch. `true` runs the whole boot — clock, schedule, alarm, face — and then stays
-/// awake instead of sleeping, so the USB port stays up and the log keeps running. A sleeping
-/// board takes both away, which makes every boot a race. Set to `false` for the real lamp.
-const DEV_MODE: bool = false;
 
 /// How long an alarm nobody answers keeps flashing before the lamp gives up and goes back to
 /// sleep. A real ring should ring for longer than this; the panel is a stand-in, not a clock radio.
@@ -55,175 +51,6 @@ const DRAW_QUIET_MS: u32 = 180;
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 esp_bootloader_esp_idf::esp_app_desc!();
 
-/// A minute count printed as `YYYY-MM-DD HH:MM`, so a log line says when instead of making the
-/// reader divide.
-struct Stamp(i64);
-
-impl Format for Stamp {
-    fn format(&self, f: Formatter) {
-        let mut buf = [0u8; FORMAT_LEN];
-        defmt::write!(f, "{}", format_minutes(self.0, &mut buf));
-    }
-}
-
-/// The clock's minute count, read fresh. Every boot and every awake window asks it at least once.
-fn now_minutes(bus: &mut I2c<'static, esp_hal::Blocking>) -> i64 {
-    let mut t = [0u8; 7];
-    bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_TIME], &mut t)
-        .expect("read time");
-    ds3231::parse_time_registers(t).div_euclid(60)
-}
-
-/// What the face's next-up line should name at `now_min`: the sooner of the next prayer and the
-/// next alarm that will ring.
-///
-/// Prayers count whether or not their switch is on — the glass is a prayer clock, and the strip
-/// below already lists all five — while an alarm only counts if it is set and enabled, because an
-/// alarm that will not ring is not something the lamp is about to do.
-fn next_up(now_min: i64, settings: &Settings, prayers: &impl PrayerTimes) -> Option<NextUp> {
-    match (schedule::next_prayer(now_min, prayers), settings.next_alarm(now_min)) {
-        (Some((prayer_at, _)), Some((alarm_at, _))) if alarm_at < prayer_at => {
-            Some(NextUp::Alarm(alarm_at))
-        }
-        (Some((prayer_at, prayer)), _) => Some(NextUp::Prayer(prayer_at, prayer)),
-        (None, Some((alarm_at, _))) => Some(NextUp::Alarm(alarm_at)),
-        (None, None) => None,
-    }
-}
-
-/// A key as the log names it.
-fn key_name(key: buttons::Key) -> &'static str {
-    match key {
-        buttons::Key::Up => "Up",
-        buttons::Key::Down => "Down",
-        buttons::Key::Ok => "OK",
-        buttons::Key::Back => "Back",
-    }
-}
-
-/// A byte buffer the flash ROM can take as it stands. Given a pointer it cannot align, it copies
-/// the write through a 4 KB sector buffer on the stack, which is a frame this file refuses to have.
-#[repr(align(4))]
-struct Words<const N: usize>([u8; N]);
-
-/// The block a sector holds, or nothing if it is blank, damaged or unreadable. Only the first
-/// [`READ_LEN`] bytes are read rather than the whole 4 KB: that is the block plus room for a field a
-/// later build appends, and the rest of the sector carries nothing.
-fn read_block(flash: &mut FlashStorage<'static>, at: u32) -> Option<Stored> {
-    let mut buf = Words::<READ_LEN>([0u8; READ_LEN]);
-    flash.read_nor(at, &mut buf.0).ok()?;
-    Stored::decode(&buf.0)
-}
-
-/// Store the settings in the sector that is not holding the newest good block, and update the two
-/// sectors to match what is now on the flash. The previous block is still there if this fails, so a
-/// brown-out during the erase costs the change, never the settings that were already stored.
-fn store(
-    flash: &mut FlashStorage<'static>,
-    sectors: &mut [Option<Stored>; 2],
-    settings: Settings,
-) -> bool {
-    let (sector, seq) = Stored::save_target(sectors[0].as_ref(), sectors[1].as_ref());
-    let block = Stored { seq, settings };
-    let at = sector.addr();
-    let slot = if sector == Sector::A { 0 } else { 1 };
-    let mut buf = Words::<STORED_LEN>([0u8; STORED_LEN]);
-    buf.0.copy_from_slice(&block.encode());
-
-    // Whatever happens below, this sector can no longer be spoken for: an erase that fails halfway
-    // or a write that lands short leaves bytes nobody should believe.
-    sectors[slot] = None;
-    if let Err(e) = flash.erase(at, at + SECTOR_LEN as u32) {
-        info!("settings: erase at {=u32:#06x} failed: {:?}", at, defmt::Debug2Format(&e));
-        return false;
-    }
-    if let Err(e) = flash.write_nor(at, &buf.0) {
-        info!("settings: write at {=u32:#06x} failed: {:?}", at, defmt::Debug2Format(&e));
-        return false;
-    }
-    sectors[slot] = Some(block);
-    info!(
-        "settings: sequence {} stored in sector {} ({=u32:#06x})",
-        seq,
-        if slot == 0 { "A" } else { "B" },
-        at
-    );
-    true
-}
-
-/// The alarm, on the only output the lamp has so far: the panel, flashing what is ringing and when
-/// it was due, until a key or a touch answers it or until it has gone on long enough. Returns
-/// whether somebody answered.
-///
-/// The ring and the card are the missing half of this. They hang off this same call, with the same
-/// title and the same deadline, which is why the caller passes a title rather than a screen.
-fn run_alarm(
-    face: &mut Face,
-    bus: &mut I2c<'static, esp_hal::Blocking>,
-    pad: &mut Input<'static>,
-    title: &str,
-    at: i64,
-) -> bool {
-    // The expander latches INT low on a press until its port is read, so start from a known
-    // release rather than from whatever the wake left behind.
-    bus.write(buttons::PCF8574_ADDR, &[buttons::RELEASE_ALL])
-        .expect("release expander pins");
-    // Both frames are drawn in turn, so pressing a key is answered without waiting for the rest of
-    // the minute: the very next frame is the clock face.
-    let delay = Delay::new();
-    let mut reader = KeyReader::default();
-    let mut port = [0u8; 1];
-    let mut waited = 0u32;
-    let mut inverted = false;
-    loop {
-        face.show_alarm(title, at, inverted);
-        inverted = !inverted;
-        waited += ALARM_BLINK_MS;
-        if waited >= ALARM_MS {
-            return false;
-        }
-        let mut polled = 0;
-        while polled < ALARM_BLINK_MS {
-            bus.read(buttons::PCF8574_ADDR, &mut port)
-                .expect("read expander");
-            if reader.update(port[0]).is_some() || pad.is_high() {
-                return true;
-            }
-            delay.delay_millis(ALARM_POLL_MS);
-            polled += ALARM_POLL_MS;
-        }
-    }
-}
-
-/// Clear the flag this boot owns and arm Alarm 1 for the next minute, which it returns.
-///
-/// The lamp redraws its clock every minute, so the next minute is always the next thing to do;
-/// an event that is due is found on the boot that lands on it. Clearing `A1F` first matters: while
-/// it is set the line stays low, and a wake pin sitting at its wake level ends a sleep as it starts.
-fn arm_next_minute(bus: &mut I2c<'static, esp_hal::Blocking>, now_min: i64) -> i64 {
-    let mut st = [0u8; 1];
-    bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_STATUS], &mut st)
-        .expect("status");
-    bus.write(
-        ds3231::I2C_ADDR,
-        &[ds3231::REG_STATUS, st[0] & !ds3231::STATUS_A1F],
-    )
-    .expect("clear a1f");
-
-    let a = ds3231::alarm1_registers(now_min + 1);
-    bus.write(
-        ds3231::I2C_ADDR,
-        &[ds3231::REG_ALARM1, a[0], a[1], a[2], a[3]],
-    )
-    .expect("alarm1");
-    bus.write(
-        ds3231::I2C_ADDR,
-        &[ds3231::REG_CONTROL, ds3231::CONTROL_ALARM1_ONLY],
-    )
-    .expect("control");
-    now_min + 1
-}
-
 /// A wake is a reset, so this function is the whole program: read the clock, run what is
 /// due, arm the next event, sleep. Nothing is remembered in RAM because nothing survives.
 #[allow(
@@ -232,6 +59,10 @@ fn arm_next_minute(bus: &mut I2c<'static, esp_hal::Blocking>, now_min: i64) -> i
 )]
 #[esp_hal::main]
 fn main() -> ! {
+    /// Bench switch. `true` runs the whole boot — clock, schedule, alarm, face — and then stays
+    /// awake instead of sleeping, so the USB port stays up and the log keeps running. A sleeping
+    /// board takes both away, which makes every boot a race. Set to `false` for the real lamp.
+    let DEV_MODE: bool = env!("DEV_MODE") == "true";
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
     let delay = Delay::new();
@@ -239,7 +70,10 @@ fn main() -> ! {
     // The stored settings, read before anything asks a question they answer. Nothing else in this
     // build uses flash, so the two sectors inside the unused `nvs` partition are the lamp's alone.
     let mut flash = FlashStorage::new(peripherals.FLASH);
-    let mut sectors = [read_block(&mut flash, SECTOR_A), read_block(&mut flash, SECTOR_B)];
+    let mut sectors = [
+        read_block(&mut flash, SECTOR_A),
+        read_block(&mut flash, SECTOR_B),
+    ];
     let stored = Stored::newest(sectors[0], sectors[1]);
     let settings = stored.map_or_else(Settings::default, |s| s.settings);
     // The five times are computed from the stored place on every boot: nothing about them is in
@@ -271,23 +105,18 @@ fn main() -> ! {
         InputConfig::default().with_pull(Pull::Down),
     );
 
-    let mut bus = I2c::new(peripherals.I2C0, I2cConfig::default())
+    let mut i2c = I2c::new(peripherals.I2C0, I2cConfig::default())
         .unwrap()
         .with_sda(peripherals.GPIO6)
         .with_scl(peripherals.GPIO7);
 
-    // The clock's own note about itself. Set means it lost power and cannot know how much
-    // time went by, so nothing in its registers can be trusted for scheduling.
-    let mut status = [0u8; 1];
-    bus.write_read(ds3231::I2C_ADDR, &[ds3231::REG_STATUS], &mut status)
+    let mut clock_status = [0u8; 1];
+    i2c.write_read(ds3231::I2C_ADDR, &[ds3231::REG_STATUS], &mut clock_status)
         .expect("read status");
-    let osf = status[0] & ds3231::STATUS_OSF != 0;
-    // A1F separates the two things that can wake the lamp: the clock leaves it set, a hand on the
-    // pad or on any button leaves it clear. Nothing needs to know which of the two, because both
-    // mean the same thing — someone is standing here.
-    let a1f = status[0] & ds3231::STATUS_A1F != 0;
+    let osf = clock_status[0] & ds3231::STATUS_OSF != 0;
+    let a1f = clock_status[0] & ds3231::STATUS_A1F != 0;
 
-    let now_min = now_minutes(&mut bus);
+    let now_min = clock::now_minutes(&mut i2c);
     // A wake is a wake from sleep; a power-on reset leaves the hardware with no cause to report.
     let woken = !esp_hal::rtc_cntl::wakeup_cause().is_empty();
     let by_hand = woken && !a1f;
@@ -361,7 +190,8 @@ fn main() -> ! {
                     Stamp(next.utc_min),
                     Stamp(utc_to_egypt(next.utc_min)),
                     next.utc_min - now_min
-                );            }
+                );
+            }
             None => info!("nothing scheduled; waking in a minute"),
         }
     }
@@ -397,22 +227,17 @@ fn main() -> ! {
             Stamp(at),
             ALARM_MS / 1000
         );
-        let answered = run_alarm(&mut face, &mut bus, &mut pad, title, at);
+        let answered = run_alarm(&mut face, &mut i2c, &mut pad, title, at);
         info!(
             "alarm: {}",
-            if answered { "answered" } else { "gave up, nobody came" }
+            if answered {
+                "answered"
+            } else {
+                "gave up, nobody came"
+            }
         );
-        let later = now_minutes(&mut bus);
-        if !osf {
-            face_next = next_up(later, &settings, &prayers);
-        }
-        face.show_clock(Standby {
-            now_min: later,
-            next: face_next,
-            today,
-            prayers_on: settings.prayers_on,
-            sleeping: !by_hand,
-        });
+        let later = clock::now_minutes(&mut i2c);
+        draw_clock(&mut face, later, &settings, &prayers, osf, !by_hand);
     }
 
     // The lamp redraws every minute, so the alarm is always the next minute; what is due is found
@@ -420,8 +245,8 @@ fn main() -> ! {
     // before it, because an alarm can hold the panel past the minute: programming a minute that
     // has already gone by leaves the clock's alarm matching nothing, and the lamp would sleep for
     // good.
-    let after = now_minutes(&mut bus);
-    let mut wakes_at = arm_next_minute(&mut bus, after);
+    let after = clock::now_minutes(&mut i2c);
+    let mut wakes_at = clock::arm_next_minute(&mut i2c, after);
 
     // A hand is the only way a person announces themselves — the pad, or any of the four buttons
     // sharing the clock's wake line through the expander's INT. It is worth staying awake for:
@@ -437,9 +262,12 @@ fn main() -> ! {
         if DEV_MODE {
             info!("awake: dev mode, the window stays open so the log keeps up");
         } else {
-            info!("awake: a hand woke the lamp, staying {} s", buttons::IDLE_SLEEP_MS / 1000);
+            info!(
+                "awake: a hand woke the lamp, staying {} s",
+                buttons::IDLE_SLEEP_MS / 1000
+            );
         }
-        bus.write(buttons::PCF8574_ADDR, &[buttons::RELEASE_ALL])
+        i2c.write(buttons::PCF8574_ADDR, &[buttons::RELEASE_ALL])
             .expect("release expander pins");
         let mut reader = KeyReader::default();
         let mut menu = Menu::new(settings);
@@ -455,7 +283,7 @@ fn main() -> ! {
         let mut dirty = false;
         loop {
             let mut busy = false;
-            bus.read(buttons::PCF8574_ADDR, &mut port)
+            i2c.read(buttons::PCF8574_ADDR, &mut port)
                 .expect("read expander");
             // The raw port as well as the decoded key: a port that stops changing means the
             // expander or the bus, a port that changes with no key means the decoding.
@@ -511,7 +339,7 @@ fn main() -> ! {
             // redraws it, the same fast-refresh path the lamp takes on every wake.
             ticks += 1;
             if ticks % 250 == 0 {
-                let now = now_minutes(&mut bus);
+                let now = clock::now_minutes(&mut i2c);
                 info!(
                     "now {} UTC, sqw {}",
                     Stamp(now),
@@ -519,16 +347,7 @@ fn main() -> ! {
                 );
                 if menu.screen == Screen::Home && now != shown_min && face.is_idle() {
                     shown_min = now;
-                    if !osf {
-                        face_next = next_up(now, &menu.settings, &prayers);
-                    }
-                    face.show_clock(Standby {
-                        now_min: now,
-                        next: face_next,
-                        today,
-                        prayers_on: menu.settings.prayers_on,
-                        sleeping: false,
-                    });
+                    draw_clock(&mut face, now, &settings, &prayers, osf, false);
                 }
             }
             idle_ms = if busy { 0 } else { idle_ms + 20 };
@@ -541,20 +360,11 @@ fn main() -> ! {
                 let started = esp_hal::time::Instant::now();
                 match menu.screen {
                     Screen::Home => {
-                        let now = now_minutes(&mut bus);
+                        let now = clock::now_minutes(&mut i2c);
                         shown_min = now;
                         // Fresh from the settings that were just changed: an alarm set from the
                         // menu has to be able to become the next thing the face names.
-                        if !osf {
-                            face_next = next_up(now, &menu.settings, &prayers);
-                        }
-                        face.show_clock(Standby {
-                            now_min: now,
-                            next: face_next,
-                            today,
-                            prayers_on: menu.settings.prayers_on,
-                            sleeping: false,
-                        });
+                        draw_clock(&mut face, now, &settings, &prayers, osf, false);
                     }
                     _ => face.show_menu(&menu),
                 }
@@ -573,18 +383,9 @@ fn main() -> ! {
 
         // The window may have crossed a minute, and the alarm was armed before it. Redraw with
         // the corner mark on, so the last thing on the glass is the lamp going back to sleep.
-        let later = now_minutes(&mut bus);
-        if !osf {
-            face_next = next_up(later, &menu.settings, &prayers);
-        }
-        face.show_clock(Standby {
-            now_min: later,
-            next: face_next,
-            today,
-            prayers_on: menu.settings.prayers_on,
-            sleeping: true,
-        });
-        wakes_at = arm_next_minute(&mut bus, later);
+        let later = clock::now_minutes(&mut i2c);
+        draw_clock(&mut face, later, &settings, &prayers, osf, true);
+        wakes_at = clock::arm_next_minute(&mut i2c, later);
     }
 
     // The panel holds the last image with no power, so this is the last thing before the chip
@@ -606,7 +407,7 @@ fn main() -> ! {
     while !sqw.is_high() || pad.is_high() {
         if !pad.is_high() {
             let mut st = [0u8; 1];
-            if bus
+            if i2c
                 .write_read(ds3231::I2C_ADDR, &[ds3231::REG_STATUS], &mut st)
                 .is_ok()
                 && st[0] & ds3231::STATUS_A1F != 0
@@ -620,7 +421,7 @@ fn main() -> ! {
             waited = true;
         }
         let mut port = [0u8; 1];
-        let _ = bus.read(buttons::PCF8574_ADDR, &mut port);
+        let _ = i2c.read(buttons::PCF8574_ADDR, &mut port);
         delay.delay_millis(200);
     }
 
@@ -640,4 +441,168 @@ fn main() -> ! {
     );
     let mut lp = LowPower::new(peripherals.LPWR);
     lp.sleep_deep(RtcSleepConfig::deep());
+}
+
+/// A minute count printed as `YYYY-MM-DD HH:MM`, so a log line says when instead of making the
+/// reader divide.
+struct Stamp(i64);
+
+impl Format for Stamp {
+    fn format(&self, f: Formatter) {
+        let mut buf = [0u8; FORMAT_LEN];
+        defmt::write!(f, "{}", format_minutes(self.0, &mut buf));
+    }
+}
+
+/// What the face's next-up line should name at `now_min`: the sooner of the next prayer and the
+/// next alarm that will ring.
+///
+/// Prayers count whether or not their switch is on — the glass is a prayer clock, and the strip
+/// below already lists all five — while an alarm only counts if it is set and enabled, because an
+/// alarm that will not ring is not something the lamp is about to do.
+fn next_up(now_min: i64, settings: &Settings, prayers: &impl PrayerTimes) -> Option<NextUp> {
+    match (
+        schedule::next_prayer(now_min, prayers),
+        settings.next_alarm(now_min),
+    ) {
+        (Some((prayer_at, _)), Some((alarm_at, _))) if alarm_at < prayer_at => {
+            Some(NextUp::Alarm(alarm_at))
+        }
+        (Some((prayer_at, prayer)), _) => Some(NextUp::Prayer(prayer_at, prayer)),
+        (None, Some((alarm_at, _))) => Some(NextUp::Alarm(alarm_at)),
+        (None, None) => None,
+    }
+}
+
+/// A key as the log names it.
+fn key_name(key: buttons::Key) -> &'static str {
+    match key {
+        buttons::Key::Up => "Up",
+        buttons::Key::Down => "Down",
+        buttons::Key::Ok => "OK",
+        buttons::Key::Back => "Back",
+    }
+}
+
+/// A byte buffer the flash ROM can take as it stands. Given a pointer it cannot align, it copies
+/// the write through a 4 KB sector buffer on the stack, which is a frame this file refuses to have.
+#[repr(align(4))]
+struct Words<const N: usize>([u8; N]);
+
+/// The block a sector holds, or nothing if it is blank, damaged or unreadable. Only the first
+/// [`READ_LEN`] bytes are read rather than the whole 4 KB: that is the block plus room for a field a
+/// later build appends, and the rest of the sector carries nothing.
+fn read_block(flash: &mut FlashStorage<'static>, at: u32) -> Option<Stored> {
+    let mut buf = Words::<READ_LEN>([0u8; READ_LEN]);
+    flash.read_nor(at, &mut buf.0).ok()?;
+    Stored::decode(&buf.0)
+}
+
+/// Store the settings in the sector that is not holding the newest good block, and update the two
+/// sectors to match what is now on the flash. The previous block is still there if this fails, so a
+/// brown-out during the erase costs the change, never the settings that were already stored.
+fn store(
+    flash: &mut FlashStorage<'static>,
+    sectors: &mut [Option<Stored>; 2],
+    settings: Settings,
+) -> bool {
+    let (sector, seq) = Stored::save_target(sectors[0].as_ref(), sectors[1].as_ref());
+    let block = Stored { seq, settings };
+    let at = sector.addr();
+    let slot = if sector == Sector::A { 0 } else { 1 };
+    let mut buf = Words::<STORED_LEN>([0u8; STORED_LEN]);
+    buf.0.copy_from_slice(&block.encode());
+
+    // Whatever happens below, this sector can no longer be spoken for: an erase that fails halfway
+    // or a write that lands short leaves bytes nobody should believe.
+    sectors[slot] = None;
+    if let Err(e) = flash.erase(at, at + SECTOR_LEN as u32) {
+        info!(
+            "settings: erase at {=u32:#06x} failed: {:?}",
+            at,
+            defmt::Debug2Format(&e)
+        );
+        return false;
+    }
+    if let Err(e) = flash.write_nor(at, &buf.0) {
+        info!(
+            "settings: write at {=u32:#06x} failed: {:?}",
+            at,
+            defmt::Debug2Format(&e)
+        );
+        return false;
+    }
+    sectors[slot] = Some(block);
+    info!(
+        "settings: sequence {} stored in sector {} ({=u32:#06x})",
+        seq,
+        if slot == 0 { "A" } else { "B" },
+        at
+    );
+    true
+}
+
+/// The alarm, on the only output the lamp has so far: the panel, flashing what is ringing and when
+/// it was due, until a key or a touch answers it or until it has gone on long enough. Returns
+/// whether somebody answered.
+///
+/// The ring and the card are the missing half of this. They hang off this same call, with the same
+/// title and the same deadline, which is why the caller passes a title rather than a screen.
+fn run_alarm(
+    face: &mut Face,
+    bus: &mut I2c<'static, esp_hal::Blocking>,
+    pad: &mut Input<'static>,
+    title: &str,
+    at: i64,
+) -> bool {
+    // The expander latches INT low on a press until its port is read, so start from a known
+    // release rather than from whatever the wake left behind.
+    bus.write(buttons::PCF8574_ADDR, &[buttons::RELEASE_ALL])
+        .expect("release expander pins");
+    // Both frames are drawn in turn, so pressing a key is answered without waiting for the rest of
+    // the minute: the very next frame is the clock face.
+    let delay = Delay::new();
+    let mut reader = KeyReader::default();
+    let mut port = [0u8; 1];
+    let mut waited = 0u32;
+    let mut inverted = false;
+    loop {
+        face.show_alarm(title, at, inverted);
+        inverted = !inverted;
+        waited += ALARM_BLINK_MS;
+        if waited >= ALARM_MS {
+            return false;
+        }
+        let mut polled = 0;
+        while polled < ALARM_BLINK_MS {
+            bus.read(buttons::PCF8574_ADDR, &mut port)
+                .expect("read expander");
+            if reader.update(port[0]).is_some() || pad.is_high() {
+                return true;
+            }
+            delay.delay_millis(ALARM_POLL_MS);
+            polled += ALARM_POLL_MS;
+        }
+    }
+}
+fn draw_clock(
+    face: &mut Face,
+    now: i64,
+    settings: &Settings,
+    prayers: &impl PrayerTimes,
+    osf: bool,
+    sleeping: bool,
+) {
+    let mut face_next: Option<NextUp> = None;
+    let today = schedule::local_times(now, prayers);
+    if !osf {
+        face_next = next_up(now, settings, prayers);
+    }
+    face.show_clock(Standby {
+        now_min: now,
+        next: face_next,
+        today,
+        prayers_on: settings.prayers_on,
+        sleeping,
+    });
 }
