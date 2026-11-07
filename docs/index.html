@@ -46,11 +46,27 @@
   <p>The ring on GPIO10 through RMT with the ramp from <code>core::ramp</code>, the AO3400 rail switch on
   GPIO5, and the MP3 card on GPIO20/21 playing the adhan from its own card. The alarm that already takes
   the panel gets its sound and its light from the same call.</p>
+  <p><b>Every prayer and every alarm picks its own sound, by ear.</b> The player never reports file
+  names, only how many tracks the card holds (query <code>0x48</code>), so a sound is a track number,
+  and the menu offers it as "Sound 3 of 7". Each of the five prayers gets a Sound row on the Prayers
+  screen, and each of the eight alarms gets one in the alarm editor, in place of the fixed tone list.
+  Up and Down step through the tracks and play a few seconds of each at that event's volume. Leaving
+  the row stops the preview and switches the rail back off. The settings block keeps one track per
+  prayer (carved out of <code>reserved</code>) and one per alarm (its existing sound byte, which
+  becomes a track number). A block with no choice stored keeps today's mapping: prayer <i>n</i> plays
+  track <i>n</i>. A track past the card's count falls back to that default instead of playing
+  nothing.</p>
   <p><b>Gate:</b> at its minute an alarm runs the ramp and plays the sound it carries, and any key or
   touch stops it; a prayer does the same with its own track. Two alarms on one morning ring like two
-  alarms, not like one alarm and one special case.</p>
+  alarms, not like one alarm and one special case. Two prayers and two alarms, each given a different
+  track from the menu by ear, each play the track they were given, and still do after an unplug.</p>
   <p><b>Checks on the way:</b></p>
   <ul>
+    <li>The player answers the track-count query on the real board, and the count matches the files in
+    <code>/mp3</code>. Clone chips often answer wrongly or not at all; if this one does, the count
+    becomes a setting the owner enters instead of a question the lamp asks.</li>
+    <li>A name after the four digits (<code>/mp3/0003 rain.mp3</code>) still plays as track 3, so the
+    card stays readable to whoever copies files onto it.</li>
     <li>The ring ramps red to warm white in a dark room at 4.2 V and at 3.2–3.5 V (the LM2596 from a USB
     charger stands in for an empty cell; this is below the ring's 3.5 V datasheet minimum). Ring current
     measured.</li>
