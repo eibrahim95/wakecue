@@ -595,8 +595,26 @@ fn main() -> ! {
     // which would spin the chip through resets. Wait for both to clear first. GPIO3 is shared by
     // the clock's SQW and the expander's INT, and INT stays latched low after a button press
     // until the port is read — so read it, or a press during this wait would hold the lamp awake.
+    //
+    // One low on GPIO3 is not a thing to wait out: the clock's own alarm. The refresh is finished
+    // after the alarm is armed, so the next minute can arrive before the lamp gets here, and then
+    // A1F holds the line low until somebody clears it — which nothing in this loop would, so the
+    // lamp used to spin here for good with the old minute on the glass. That low is the wake the
+    // lamp was about to sleep for, so sleep on it: the chip comes straight back up, and that boot
+    // is an ordinary minute tick that clears A1F and draws the new minute.
     let mut waited = false;
     while !sqw.is_high() || pad.is_high() {
+        if !pad.is_high() {
+            let mut st = [0u8; 1];
+            if bus
+                .write_read(ds3231::I2C_ADDR, &[ds3231::REG_STATUS], &mut st)
+                .is_ok()
+                && st[0] & ds3231::STATUS_A1F != 0
+            {
+                info!("the clock's alarm fired before sleep; sleeping on it to redraw");
+                break;
+            }
+        }
         if !waited {
             info!("waiting for GPIO3 and GPIO4 to sit clear");
             waited = true;
