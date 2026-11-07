@@ -5,6 +5,7 @@ pub mod astro;
 pub mod buttons;
 pub mod calendar;
 pub mod dfplayer;
+pub mod dhcp;
 pub mod ds3231;
 pub mod ina219;
 pub mod menu;
