@@ -28,6 +28,9 @@ Each line has a row in `docs/build-log.html`.
   on GPIO3), and a touch (GPIO4, active high) or any button (expander INT on
   GPIO3) wakes it. The display keeps its image through the sleep.
 - **The clock:** DS3231 keeps UTC; set from NTP on the bench; OSF read at boot.
+- **The zone:** the face, the alarms and the prayer strip follow the offset and summer-time
+  rule stored in the block, not Egypt's. The Time zone screen (top menu, third row) sets the
+  hour, the minute (00, 15, 30, 45) and the rule, and writes them on Save.
 - **Wi-Fi:** joins the house router as a station (scratch project), DHCP,
   DNS, NTP. The lamp's own access point and setup page are move 1, not built.
 
@@ -39,14 +42,6 @@ Each line has a row in `docs/build-log.html`.
 - The prayer strip on the face: drawn on every face, but nobody has checked
   that its times and dots match the switches.
 - The 30 s deadline on the network phase: written, never seen firing.
-- The wall clock from the stored zone (`core::calendar::Zone`): the face, the alarms and the
-  prayer strip follow the offset and summer-time rule in the block instead of Egypt's, with the
-  none, egypt, europe and us rules. Checked on the PC (a Cairo sweep against the old function,
-  New York, London, Kolkata, the repeated and the missing hour); not yet seen on the glass.
-- The Time zone screen (top menu, third row): an hour row (-12 to +14), a minute row (00, 15, 30,
-  45) and a summer-time row, written to flash on Save. Tested as a state machine; not yet drawn
-  or pressed on the board.
-
 ## In hand
 
 Everything in the parts list (`docs/hardware.html#bom`) except the Amazon.eg
