@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Wakecue battery</title>
+<meta name="description" content="Battery calculator for the Wakecue lamp.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head><body>
+<main>
+<header>
+  <a class="kicker" href="index.html">Wakecue: Lamp &amp; Alarm</a>
+  <h1>Battery</h1>
+</header>
+<nav class="toc" aria-label="Pages"><a href="index.html">Plan &amp; design</a><a href="hardware.html">Hardware</a><a href="software.html">Software</a><a href="build-log.html">Build log</a><a href="battery.html" aria-current="page">Battery</a><a href="../STATUS.md">Status</a></nav>
+
+<section id="battery">
+  <h2>Battery calculator</h2>
+  <p class="muted">The defaults are my assumptions, not measurements: measure the real sleep current with a multimeter on the positive wire before trusting the result. The result assumes 80% of the cell's capacity is usable, because the ring needs at least 3.5 V and the chip browns out near the same point.</p>
+  <div class="calc">
+    <label for="cap">Cell capacity (mAh)<input id="cap" type="number" value="3250" min="500" step="100"></label>
+    <label for="cells">Cells in parallel<select id="cells"><option value="1">1</option><option value="2">2</option></select></label>
+    <label for="stby">Average background current, incl. the per-minute clock redraw (mA)<input id="stby" type="number" value="1" min="0" step="0.05"></label>
+    <label for="lamp">Ring current at full brightness (mA)<input id="lamp" type="number" value="300" min="0" step="10"></label>
+    <label for="ramp">Ramp minutes per day<input id="ramp" type="number" value="15" min="0" step="1"></label>
+    <label for="hold">Lamp minutes after the prayer<input id="hold" type="number" value="10" min="0" step="1"></label>
+    <label for="cpu">Chip current while awake (mA)<input id="cpu" type="number" value="12" min="0" step="1"></label>
+    <label for="aud">Audio minutes per day (speaker)<input id="aud" type="number" value="3" min="0" step="1"></label>
+    <label for="audma">Speaker current while playing (mA)<input id="audma" type="number" value="200" min="0" step="10"></label>
+  </div>
+  <div class="result"><span class="big" id="days">23 days</span><span id="daysNote">between charges</span></div>
+  <div class="bars" id="bars" aria-live="polite"></div>
+  <p class="muted">The lamp is what drains the battery. Sleeping with a once-a-minute clock redraw is assumed to average 1 mA until you measure it (the DS3231 alone is about 0.2 mA, and each redraw wakes the chip), which would last about 3.7 months. Each 10 minutes of the ring at its 300 mA cap costs about 52 mAh, which is about 2 days of that sleep. At the defaults the lamp needs charging about every 3 weeks; measure the background current (roadmap move 3) and replace the default. For longer life, lower the cap or shorten the time the lamp stays on after the prayer.</p>
+</section>
+</main>
+<script src="site.js"></script>
+</body></html>

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Wakecue software</title>
+<meta name="description" content="Prayer times and the firmware for the Wakecue lamp.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head><body>
+<main>
+<header>
+  <a class="kicker" href="index.html">Wakecue: Lamp &amp; Alarm</a>
+  <h1>Software</h1>
+</header>
+<nav class="toc" aria-label="Pages"><a href="index.html">Plan &amp; design</a><a href="hardware.html">Hardware</a><a href="software.html" aria-current="page">Software</a><a href="build-log.html">Build log</a><a href="battery.html">Battery</a><a href="../STATUS.md">Status</a></nav>
+
+<section id="software">
+  <h2>Software</h2>
+  <h3>Prayer times for years ahead</h3>
+  <p><b>All five prayers are built.</b> A rule picks its trigger with <code>When::Prayer(prayer, minutes)</code> or a fixed clock time, and you can have several rules at once. The lamp computes Fajr (19.5°), Dhuhr, Asr (standard shadow), Maghrib (sunset) and Isha (17.5°) itself, from the place in its stored block: the Egyptian General Authority of Survey method, and the same NOAA solar formulae the prototype's generated table came from. Nothing ten years wide sits in the image any more — the arithmetic runs on the boot that needs it, so the owner's place stands in for Cairo, and a test asks the new code for all 18,260 times of the old Cairo table. (Which clock the lamp reads those times against is still Egypt's, with its summer time; that part is the next step, and until then a place outside Egypt would get right astronomy read on the wrong clock.) A prayer time is in <b>UTC</b>, so it is unaffected by daylight saving or a law change. DST only matters for display and for rules you write in local time; that function is tested on 2026 and 2027 (this year it ends Thursday 29 October 2026 at 24:00 Egypt time). Maghrib is the moment the sun's upper edge reaches the horizon (−0.833°), not a fixed number of minutes after.</p>
+  <div class="tablewrap"><table style="min-width:520px">
+    <thead><tr><th>Prayer</th><th class="num">Earlier than Aladhan</th><th class="num">Later than Aladhan</th><th class="num">Minutes later: mean</th></tr></thead>
+    <tbody><tr><td>Fajr</td><td class="num">never</td><td class="num">1 min on 56 days</td><td class="num">0.46</td></tr>
+    <tr><td>Dhuhr</td><td class="num">never</td><td class="num">1 min on 62 days</td><td class="num">0.51</td></tr>
+    <tr><td>Asr</td><td class="num">1 min on 10 days</td><td class="num">1 min on 66 days, 2 on 13</td><td class="num">0.67</td></tr>
+    <tr><td>Maghrib</td><td class="num">never</td><td class="num">1 min on 64 days</td><td class="num">0.52</td></tr>
+    <tr><td>Isha</td><td class="num">never</td><td class="num">1 min on 61 days</td><td class="num">0.50</td></tr></tbody></table></div>
+  <p class="muted">Compared with the Aladhan calculator for Cairo (method 5, standard Asr) on all 122 days of January, March, June and September 2026. Asr drifts with the season (about 1 to 2 minutes later in winter, 1 minute earlier in September) while the other four stay within a minute; I did not find which calculator is the more accurate for Asr, so that prayer is the one to compare with your mosque. Every time is rounded up to the next whole minute, so none is earlier than the astronomical value. Official timetables add safety margins, so compare all five with your mosque's or Dar al-Ifta's, and set each prayer's offset to any constant difference.</p>
+    <div class="codebox"><div class="codehead"><span>Move the lamp to another place (Mansoura, approx.)</span><button type="button" data-copy="gen">Copy</button></div>
+<pre id="gen">just settings-dump          # board in download mode; what the lamp holds, as editable lines
+# edit firmware_ws/wakecue/settings.text:
+#   place = Mansoura
+#   lat = 31.0400
+#   lon = 31.3800
+#   utc = +2:00
+just settings-build && just settings-write</pre></div>
+  <h3>The code</h3>
+  <div class="callout"><strong>Rust all the way</strong>
+    <span>Every driver in the final build has a Rust path. The ring uses the C3's RMT peripheral (the <code>esp-hal-smartled</code> crate). The SSD1680 e-paper uses <code>weact-studio-epd</code> (vendored in <code>firmware_ws/vendor/</code>, so a refresh can be started and finished separately). The DS3231 and MP3 commands are already written and tested in <code>core</code>. The DS3231's second alarm can wake the chip every minute to redraw the clock. I haven't checked those crates' versions against esp-hal 1.2, so pin whichever versions compile together.</span></div>
+  <p>The Rust project is in the <code>firmware_ws/</code> folder next to this page and has three parts: <code>core</code> (the five computed prayer times and the schedule over them, the lamp's own alarms, DST, clock registers, MP3 frames, the ramp curve, the stored settings, the menu, the button decoding and the INA219 reading: 65 unit tests and an 18,260-time check against the old Cairo table), <code>settings-tool</code> (reads and patches the settings block from the PC, the way back when the menu is stuck) and <code>wakecue</code> (the lamp itself on esp-hal: display, buttons, alarms, sleep). What is not written yet is the ring and the MP3 card. The schedule is a list of rules in the stored settings block, edited from the menu or with <code>settings-tool</code>; this is how <code>core</code> spells three of them (see <a href="index.html#schedule">What you can schedule</a>):</p>
+  <div class="codebox"><div class="codehead"><span>rules, as core spells them</span><button type="button" data-copy="rules">Copy</button></div>
+<pre id="rules">const RULES: [Rule; 3] = [
+    // Ring ramps deep red → amber → warm white over 15 minutes, finishing exactly at Isha
+    Rule { days: ALL_DAYS, when: When::Prayer(Prayer::Isha, 0), action: Action::Sunrise { ramp_min: 15 } },
+    // Isha's own track (/mp3/0005.mp3), fading in over a minute
+    Rule { days: ALL_DAYS, when: When::Prayer(Prayer::Isha, 0), action: Action::Play { track: 5, volume: 20, fade_in_s: 60 } },
+    // Example: Sun–Thu at 07:30 Egypt time, track 6 (DST handled automatically)
+    Rule { days: 0b0001_1111, when: When::Local(7 * 60 + 30), action: Action::Play { track: 6, volume: 15, fade_in_s: 60 } },
+];</pre></div>
+  <details><summary>The wake-then-sleep cycle, in outline</summary>
+  <div class="inner">
+    <p class="muted">A sketch of the shape, not the code: the real boot path is <code>firmware_ws/wakecue/src/bin/main.rs</code>, and it runs on the board (see the <a href="build-log.html#status">build log</a>). The 1.2 release changed the sleep API: a pin you <code>listen(Event::LowLevel)</code> on is the wake source, and <code>RtcioWakeupSource</code> is gone. The touch pad on GPIO4 is the same shape but the opposite level: it is armed on a high, because the module in hand has no A/B pads to flip (see the build log).</p>
+    <div class="codebox"><div class="codehead"><span>outline</span><button type="button" data-copy="wake">Copy</button></div>
+<pre id="wake">// 1) Read time and status from the DS3231 (UTC)
+i2c.write_read(I2C_ADDR, &amp;[ds3231::REG_TIME], &amp;mut t)?;
+let now_min = ds3231::parse_time_registers(t).div_euclid(60);
+
+// 2) If the alarm woke us, run the event that just came due
+if let Some(ev) = next_event(now_min - 2, &amp;RULES, &amp;prayers) {
+    if ev.utc_min &lt;= now_min { run(ev.action); }
+}
+
+// 3) Clear A1F, otherwise INT stays low and sleep is refused
+i2c.write(I2C_ADDR, &amp;[ds3231::REG_STATUS, status &amp; !ds3231::STATUS_A1F])?;
+
+// 4) Program the next event (date + hour + minute) and enable Alarm 1
+let a = ds3231::alarm1_registers(next_event(now_min, &amp;RULES, &amp;prayers)?.utc_min);
+i2c.write(I2C_ADDR, &amp;[ds3231::REG_ALARM1, a[0], a[1], a[2], a[3]])?;
+i2c.write(I2C_ADDR, &amp;[ds3231::REG_CONTROL, ds3231::CONTROL_ALARM1_ONLY])?;
+
+// 5) Pins wake on low level, then deep sleep
+let mut int = Input::new(p.GPIO3, InputConfig::default().with_pull(Pull::Up));
+int.apply_wakeup_config(&amp;WakeupConfig::default().with_low_power_path(true))?;
+int.listen(Event::LowLevel);
+LowPower::new(p.LPWR).sleep_deep(RtcSleepConfig::deep());</pre></div>
+  </div></details>
+</section>
+</main>
+<script src="site.js"></script>
+</body></html>

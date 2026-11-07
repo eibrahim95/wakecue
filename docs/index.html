@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Wakecue: lamp and alarm</title>
+<meta name="description" content="A bedside lamp and alarm clock: the plan, what it is and how it works.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head><body>
+<main>
+<header>
+  <span class="kicker">DIY project · Rust · ESP32-C3</span>
+  <h1>Wakecue: Lamp &amp; Alarm</h1>
+  <p class="lead">A bedside lamp and an alarm clock in one: an opal glass globe on a 3D-printed base. It sleeps on an 18650 cell almost all day, then, before any alarm it has been given — one of yours, or any of the five prayers — the globe fades from deep red through amber to warm white over the ramp you set, and the sound you chose plays at the time itself.</p>
+  <div class="facts">
+    <span>Parts <b>≈3,787 EGP</b>, plus ≈952 EGP of tools if you don’t own them</span>
+    <span>Size <b>16 cm wide × ≈20 cm tall</b></span>
+    <span>Battery life at default settings <b id="heroDays">~23 days</b></span>
+  </div>
+</header>
+<nav class="toc" aria-label="Pages"><a href="index.html" aria-current="page">Plan &amp; design</a><a href="hardware.html">Hardware</a><a href="software.html">Software</a><a href="build-log.html">Build log</a><a href="battery.html">Battery</a><a href="../STATUS.md">Status</a></nav>
+
+<section id="roadmap">
+  <h2>Roadmap</h2>
+  <p class="lead"><b>The goal:</b> one bedside lamp, built and given to someone else. It wakes them on
+  their own alarms or on any of the five prayers, with light and sound, and shows the day's prayers for
+  <i>their</i> place. It asks for nothing but a phone: no PC, no password compiled in, no reflashing.
+  This section is the plan; the rest of this page and the other pages are reference — how it is wired,
+  what it costs, how it looks.</p>
+  <p class="callout"><span><strong>Where the build stands</strong> is kept in one place only:
+  <a href="../STATUS.md"><code>STATUS.md</code></a> at the root of the repo — the current move, what
+  has been seen on the board, what is owned and what is still to buy. These pages do not repeat it.</span></p>
+
+  <h3>1 · It keeps its own time <span class="muted">· first</span></h3>
+  <p>What the owner does: a first boot with nothing stored raises <code>Wakecue-XXXX</code>, the phone
+  opens the page the lamp serves, and they pick the network, the time zone and the place. The lamp keeps
+  all three, sets its clock from the network whenever the clock cannot be trusted, and computes the five
+  times for that place. The wall clock stops being Egypt's and becomes whatever the block says.</p>
+  <p><b>Gate:</b> with no cell fitted and the lamp unplugged, a phone alone brings the face to the right
+  local time and the right five times for a place that is not Cairo; a second unplug keeps all of it.</p>
+  <p><b>Trip-wire, written down before starting:</b> the radio needs allocation and an executor inside
+  the lamp. If a real phone cannot get an address from our own DHCP server within a couple of days of
+  bench work, that half moves to ESP-IDF and gets re-planned rather than fought.</p>
+
+  <h3>2 · It wakes you <span class="muted">· after 1</span></h3>
+  <p>The ring on GPIO10 through RMT with the ramp from <code>core::ramp</code>, the AO3400 rail switch on
+  GPIO5, and the MP3 card on GPIO20/21 playing the adhan from its own card. The alarm that already takes
+  the panel gets its sound and its light from the same call.</p>
+  <p><b>Gate:</b> at its minute an alarm runs the ramp and plays the sound it carries, and any key or
+  touch stops it; a prayer does the same with its own track. Two alarms on one morning ring like two
+  alarms, not like one alarm and one special case.</p>
+  <p><b>Checks on the way:</b></p>
+  <ul>
+    <li>The ring ramps red to warm white in a dark room at 4.2 V and at 3.2–3.5 V (the LM2596 from a USB
+    charger stands in for an empty cell; this is below the ring's 3.5 V datasheet minimum). Ring current
+    measured.</li>
+    <li>Track 1 plays at a usable volume at 4.2 V and at 3.2–3.5 V, and the frame commands work on the
+    real board (the listing never names the player's chip).</li>
+    <li>No chip reset when the rail switches on (slow gate: 1 kΩ), nor when the speaker starts with the ring
+    lit.</li>
+    <li>Rail-off draw back at the sleep baseline. If it is not, current is leaking through the ring or player
+    pins while their ground is open, and the switch moves to the high side (the AO3401s) before anything
+    else.</li>
+    <li>Fallbacks, only if needed: a 1N5819WF in series with the ring supply if the first pixel glitches at
+    4.2 V; the MT3608 5 V boost for the ring and player if colours or sound fail below about 3.5 V (that
+    route also needs a 3.3 → 5 V level shifter from elsewhere).</li>
+  </ul>
+
+  <h3>3 · It ships <span class="muted">· after 2</span></h3>
+  <p>The difference between a bench and a lamp: a CR2032 with the DS3231 charge resistor lifted, so an
+  unplug no longer costs the time; a factory reset (hold Back at boot) so the lamp can be handed on; the
+  sleep current measured instead of estimated; the panel's hidden edge measured; and everything soldered
+  onto the 5×7 cm board in the base.</p>
+  <p><b>Gate:</b> the lamp on the shelf, unplugged for a day, still showing the right time; a measured
+  sleep current that matches the battery table; the board in the base, no breadboard.</p>
+  <p><b>Checks on the way:</b></p>
+  <ul>
+    <li>Power LEDs off the SuperMini and the DS3231, and the DS3231 charge resistor lifted, before a cell
+    goes in (see the warning in the <a href="build-log.html#status">build log</a>).</li>
+    <li>Whole-board sleep current under 0.5 mA on the 2 mA range, with a jumper across the meter opened
+    only once the chip is asleep; measured on the board alone, then with the display, expander and INA219.
+    The ten-minute average including the minute wakes replaces the calculator default.</li>
+    <li>The INA219 fitted on the same I²C wires (<code>0x40</code>, no clash with <code>0x20</code>,
+    <code>0x57</code>, <code>0x68</code>), no power LED and no pull-ups to the wrong voltage, and a
+    plausible cell voltage with the ring and player off.</li>
+    <li>The cell charges through the TP4056 while the board runs; charge termination judged with the lamp
+    asleep; the cell voltage at which the chip resets written down.</li>
+    <li>The globe bought and its neck measured (outside diameter, length, lip, weight); the STLs regenerated
+    with <code>python base.py round &lt;neck mm&gt;</code> and the Hawk quote repeated.</li>
+    <li>Printed and assembled: every part fits, the lamp does not tip, the speaker is audible through the
+    0.6 cm gap, the lid closes on all four screws, and each button cap moves freely and clicks its
+    switch.</li>
+  </ul>
+
+  <h3>How we work</h3>
+  <ul>
+    <li><b>One move at a time.</b> A move ends when its gate has passed on the board — not when the code
+    lands and not when it builds.</li>
+    <li><b>Code time is not your time.</b> While a move is being built I write it, test it on the PC and
+    commit; you are pulled in at the gate, or when a decision needs your hands.</li>
+    <li><b>One bench session per gate,</b> written as numbered steps, with nothing else in flight.</li>
+    <li><b>The record moves with the gate.</b> When you report one, the build log and
+    <code>STATUS.md</code> change in the same commit.</li>
+  </ul>
+</section>
+
+<section id="overview">
+  <h2>Overview</h2>
+  <p class="callout"><span><strong>Reading the sizes:</strong> all sizes are in centimetres. <b>Ø</b> means <i>diameter</i>, the width of a circle measured straight across its middle, so “Ø16 cm” is a circle 16 cm wide. For scale: the whole lamp is about 16 cm wide and 20 cm tall, roughly the width of an A4 sheet (21 cm) in height, and the globe is a bit bigger than a grapefruit.</span></p>
+  <p>A Ø16 cm opal glass globe in a 3D-printed base that tapers from Ø16 cm to Ø15 cm over its 5 cm height. The globe gives an even glow with no visible LEDs. The base holds every part, carries an always-on e-paper clock on its flat front, and sends the alarm sound out through the bottom.</p>
+  <figure>
+    <div class="fig night">
+<svg viewBox="0 0 760 450" role="img" aria-label="Front and side views of the lamp at full brightness: a 16 cm opal globe on a 5 cm tall printed base tapering from 16 to 15 cm, about 20 cm tall, with an e-paper clock window, four menu buttons in a row under it, and two tiny lamps (one lit, one dark) marking the touch pad">
+<defs>
+  <radialGradient id="gGlobe" cx="50%" cy="60%" r="58%"><stop offset="0" style="stop-color:var(--glass)"/><stop offset=".62" style="stop-color:var(--glow)"/><stop offset="1" style="stop-color:var(--glow-edge)"/></radialGradient>
+  <radialGradient id="gHalo"><stop offset="0" style="stop-color:var(--glow);stop-opacity:.34"/><stop offset="1" style="stop-color:var(--glow);stop-opacity:0"/></radialGradient>
+  <linearGradient id="gShell" x1="0" y1="0" x2="1" y2="0"><stop offset="0" style="stop-color:var(--shell-edge)"/><stop offset=".28" style="stop-color:var(--shell)"/><stop offset=".55" style="stop-color:var(--shell-hi)"/><stop offset="1" style="stop-color:var(--shell-edge)"/></linearGradient>
+  <linearGradient id="gTop" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--glow);stop-opacity:.55"/><stop offset="1" style="stop-color:var(--glow);stop-opacity:0"/></linearGradient>
+</defs>
+<text x="72" y="24" class="s b" style="text-anchor:start;letter-spacing:.08em">FRONT</text>
+<text x="428" y="24" class="s b" style="text-anchor:start;letter-spacing:.08em">SIDE</text>
+<line x1="20" y1="410" x2="740" y2="410" stroke="currentColor" stroke-opacity=".25"/>
+
+<circle cx="200" cy="230" r="205" fill="url(#gHalo)"/>
+<ellipse cx="200" cy="410" rx="200" ry="16" fill="url(#gHalo)"/>
+<circle cx="200" cy="222" r="128" fill="url(#gGlobe)"/>
+<ellipse cx="158" cy="165" rx="34" ry="20" fill="#FFFFFF" fill-opacity=".22"/>
+<rect x="92" y="400" width="16" height="10" rx="2" class="foot"/><rect x="292" y="400" width="16" height="10" rx="2" class="foot"/>
+<path d="M72 400 L80 320 L320 320 L328 400 Z" fill="url(#gShell)"/>
+<path d="M128 400 L132 320 L268 320 L272 400 Z" fill="var(--shell-hi)" fill-opacity=".3"/>
+<line x1="128" y1="400" x2="132" y2="320" stroke="var(--shell-edge)" stroke-opacity=".7"/><line x1="272" y1="400" x2="268" y2="320" stroke="var(--shell-edge)" stroke-opacity=".7"/>
+<path d="M80 320 L320 320 L319.4 326 L80.6 326 Z" fill="url(#gTop)"/>
+<rect x="160" y="331" width="80" height="40" rx="1.5" fill="#E9E6DC" stroke="var(--shell-edge)" stroke-width=".8"/>
+<text x="200" y="352" style="fill:#1E1E1E;font-family:var(--f-display);font-size:17px;font-weight:600">05:12</text>
+<text x="200" y="362" style="fill:#4A4A4A;font-size:6.8px">Alarm 06:30 · 87%</text>
+<circle cx="245.3" cy="385.8" r="3.5" fill="var(--shell-hi)" stroke="var(--shell-edge)" stroke-width=".7"/><rect x="243.5" y="388.8" width="3.5" height="1.8" fill="var(--shell-hi)" stroke="var(--shell-edge)" stroke-width=".7"/><circle cx="253.9" cy="385.8" r="2.8" fill="none" stroke="var(--shell-hi)" stroke-width="1.44"/><rect x="252.2" y="388.8" width="3.5" height="1.8" fill="var(--shell-hi)" stroke="var(--shell-edge)" stroke-width=".7"/><line x1="259" y1="385.5" x2="271" y2="383.5" stroke="var(--shell-hi)" stroke-opacity=".5"/><text x="273" y="385.5" class="s" style="font-size:7px;text-anchor:start">touch here</text>
+<circle cx="171.2" cy="386.4" r="4.6" fill="var(--shell-hi)" stroke="var(--shell-edge)" stroke-width="1.1"/><circle cx="190.4" cy="386.4" r="4.6" fill="var(--shell-hi)" stroke="var(--shell-edge)" stroke-width="1.1"/><circle cx="209.6" cy="386.4" r="4.6" fill="var(--shell-hi)" stroke="var(--shell-edge)" stroke-width="1.1"/><circle cx="228.8" cy="386.4" r="4.6" fill="var(--shell-hi)" stroke="var(--shell-edge)" stroke-width="1.1"/>
+
+<g class="dim"><line x1="72" y1="70" x2="328" y2="70"/><line x1="72" y1="64" x2="72" y2="76"/><line x1="328" y1="64" x2="328" y2="76"/></g>
+<text x="200" y="60" class="s">Ø16 cm opal glass globe</text>
+<g class="dim"><line x1="72" y1="430" x2="328" y2="430"/><line x1="72" y1="424" x2="72" y2="436"/><line x1="328" y1="424" x2="328" y2="436"/></g>
+<text x="200" y="446" class="s">Ø16 → Ø15 cm printed base</text>
+<g class="dim"><line x1="345" y1="320" x2="345" y2="400"/><line x1="339" y1="320" x2="351" y2="320"/><line x1="339" y1="400" x2="351" y2="400"/></g>
+<text x="352" y="364" class="s" style="text-anchor:start">5 cm</text>
+<g class="dim"><line x1="50" y1="94" x2="50" y2="410"/><line x1="44" y1="94" x2="56" y2="94"/><line x1="44" y1="410" x2="56" y2="410"/></g>
+<text x="44" y="254" class="s" style="text-anchor:end">≈20 cm</text>
+
+<circle cx="540" cy="230" r="205" fill="url(#gHalo)"/>
+<ellipse cx="548" cy="410" rx="190" ry="16" fill="url(#gHalo)"/>
+<circle cx="540" cy="222" r="128" fill="url(#gGlobe)"/>
+<ellipse cx="498" cy="165" rx="34" ry="20" fill="#FFFFFF" fill-opacity=".22"/>
+<rect x="452" y="400" width="16" height="10" rx="2" class="foot"/><rect x="634" y="400" width="16" height="10" rx="2" class="foot"/>
+<path d="M434 400 L441 320 L660 320 L668 400 Z" fill="url(#gShell)"/>
+<path d="M441 320 L660 320 L660.6 326 L440.5 326 Z" fill="url(#gTop)"/>
+<line x1="434" y1="400" x2="441" y2="320" stroke="var(--shell-edge)"/>
+<rect x="664.5" y="375" width="4" height="25" class="screen"/>
+<path d="M670 384 C700 384 708 404 742 404" fill="none" stroke="currentColor" stroke-opacity=".6" stroke-width="2.5"/>
+<text x="700" y="372" class="s">USB-C</text>
+<path d="M520 414 q8 6 16 0 M520 420 q8 6 16 0" fill="none" stroke="currentColor" stroke-opacity=".45"/>
+<text x="548" y="440" class="s">sound exits under the base</text>
+<g class="dim"><line x1="434" y1="96" x2="668" y2="96"/><line x1="434" y1="90" x2="434" y2="102"/><line x1="668" y1="90" x2="668" y2="102"/></g>
+<text x="551" y="86" class="s">14.6 cm front to back (flat front)</text>
+</svg>
+    </div>
+    <figcaption>Drawn to scale. The base tapers from Ø16 cm to Ø15 cm, so the 9 cm flat front leans back 4.6° toward you in bed. It carries a 5 × 2.5 cm e-paper window and, under it, four small buttons in a row (up, down, OK, back, left to right). Right of the row, where the copper foil of the touch pad sits behind the face, two tiny lamps — one lit, one dark, side by side so they read as one mark, not as two indicator dots — are engraved a pencil-line deep into the wall, so the pad that turns the lamp on and off reads as such without a label. The e-paper shows the time, the next prayer, the battery and which prayers ring, all day without glowing; at night a tap lights the globe at 5% so you can read it. The globe sits 0.8 cm deep in the top. The overall height depends on its neck, so measure it before the base is printed.</figcaption>
+  </figure>
+
+  <div class="verdict" aria-label="Final choices at a glance">
+    <div><span>Light</span><b>16-LED colour ring</b></div>
+    <div><span>Controls</span><b>One touch pad, four buttons</b></div>
+    <div><span>Display</span><b>2.13″ e-paper, always on</b></div>
+    <div><span>Sound</span><b>MP3 board, down-firing</b></div>
+    <div><span>Power</span><b>NCR18650B 3350 mAh</b></div>
+    <div><span>Base</span><b>3D-printed, round</b></div>
+  </div>
+
+  <div class="callout warn"><strong>Before you order the globe and the print</strong>
+  <ul class="check">
+    <li>Buy the globe first and measure its neck (outside diameter, length, any lip). The printed seat is sized from it.</li>
+    <li>Pick the base colour (black PLA is the default; matte black PLA-CF costs about 155 EGP more).</li>
+    <li>Compare all five generated prayer times with your mosque’s timetable and note any constant difference for each; every prayer has its own offset.</li>
+  </ul></div>
+</section>
+
+<section id="how">
+  <h2>How it works</h2>
+  <p>An ESP32 that stays awake burns tens of milliamps and has no accurate clock. So the jobs are split: a <b>DS3231</b> clock (about a minute of drift per year, per its spec) keeps time and pulls its <code>INT</code> line low when an event is due, while the ESP32-C3 sleeps until that line or a touch wakes it. It runs the event, programs the next one into the clock, and goes back to sleep. The ring and the MP3 board share one switched ground, so neither draws anything while it sleeps.</p>
+  <figure>
+    <div class="fig">
+<svg viewBox="0 0 760 390" role="img" aria-label="Block diagram: USB-C charges a TP4056 and 18650 cell that powers the ESP32-C3; a DS3231 clock, a PCF8574 button expander and an INA219 battery meter share I2C and the clock wakes the chip through INT; an e-paper display hangs on SPI; a touch pad also wakes it; GPIO5 drives a MOSFET that switches ground for the LED ring and the MP3 board">
+<defs><marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+<rect class="box" x="10" y="40" width="80" height="44" rx="6"/><text x="50" y="67" class="b">USB-C</text>
+<line class="wire" x1="90" y1="62" x2="118" y2="62" marker-end="url(#a1)"/>
+<rect class="box" x="120" y="30" width="130" height="64" rx="6"/><text x="185" y="56" class="b">TP4056</text><text x="185" y="76" class="s">charger + protection</text>
+<line class="wire pwr" x1="185" y1="94" x2="185" y2="148" marker-start="url(#a1)" marker-end="url(#a1)"/>
+<rect class="box" x="120" y="150" width="130" height="50" rx="6"/><text x="185" y="172" class="b">NCR18650B</text><text x="185" y="190" class="s">3.0 – 4.2 V</text>
+<line class="wire pwr" x1="250" y1="62" x2="338" y2="62" marker-end="url(#a1)"/><text class="s" x="294" y="52">VBAT → 5V pin</text>
+<rect class="box mcu" x="340" y="40" width="180" height="190" rx="8"/>
+<text x="430" y="78" class="b" style="font-size:15px">ESP32-C3</text><text x="430" y="98">SuperMini</text>
+<text x="430" y="132" class="s">deep sleep most of the day</text>
+<text x="430" y="156" class="mono">Rust · esp-hal · no_std</text>
+<rect class="box" x="600" y="28" width="140" height="34" rx="6"/><text x="670" y="43" class="b">DS3231</text><text x="670" y="56" class="s">UTC clock, Alarm 1</text>
+<rect class="box" x="600" y="66" width="140" height="34" rx="6"/><text x="670" y="81" class="b">PCF8574</text><text x="670" y="94" class="s">4 menu buttons</text>
+<rect class="box" x="600" y="104" width="140" height="34" rx="6"/><text x="670" y="119" class="b">INA219</text><text x="670" y="132" class="s">battery level</text>
+<rect class="box" x="600" y="142" width="140" height="34" rx="6"/><text x="670" y="164" class="b">2.13″ e-paper</text>
+<line class="wire sig dash" x1="598" y1="38" x2="522" y2="38" marker-end="url(#a1)"/><text class="s" x="560" y="31">INT wake</text>
+<line class="wire sig" x1="522" y1="85" x2="584" y2="85" marker-start="url(#a1)"/><line class="wire sig" x1="584" y1="45" x2="584" y2="121"/><line class="wire sig" x1="584" y1="45" x2="598" y2="45" marker-end="url(#a1)"/><line class="wire sig" x1="584" y1="83" x2="598" y2="83" marker-end="url(#a1)"/><line class="wire sig" x1="584" y1="121" x2="598" y2="121" marker-end="url(#a1)"/><text class="s" x="550" y="78">I²C</text>
+<line class="wire sig" x1="522" y1="159" x2="598" y2="159" marker-end="url(#a1)"/><text class="s" x="560" y="151">SPI</text>
+<line class="wire sig" x1="520" y1="210" x2="598" y2="210" marker-end="url(#a1)"/><text class="s" x="560" y="202">GPIO5</text>
+<rect class="box hot" x="600" y="190" width="140" height="40" rx="6"/><text x="670" y="215" class="b">AO3400</text>
+<rect class="box" x="210" y="300" width="100" height="40" rx="6"/><text x="260" y="325">Touch pad</text>
+<polyline class="wire sig dash" points="260,300 260,215 338,215" marker-end="url(#a1)"/><text class="s" x="266" y="262" style="text-anchor:start">GPIO4 wake</text>
+<rect class="box" x="340" y="300" width="110" height="40" rx="6"/><text x="395" y="325">MP3 + speaker</text>
+<line class="wire sig" x1="395" y1="232" x2="395" y2="298" marker-start="url(#a1)" marker-end="url(#a1)"/><text class="s" x="401" y="268" style="text-anchor:start">UART</text>
+<rect class="box hot" x="470" y="300" width="140" height="40" rx="6"/><text x="540" y="325" class="b">16-LED ring</text>
+<line class="wire sig" x1="500" y1="232" x2="500" y2="298" marker-end="url(#a1)"/><text class="s" x="506" y="268" style="text-anchor:start">GPIO10 data</text>
+<polyline class="wire pwr dash" points="700,232 700,362 395,362 395,342"/><line class="wire pwr dash" x1="540" y1="362" x2="540" y2="342"/>
+<text class="s" x="620" y="378">switched ground, off while asleep</text>
+</svg>
+    </div>
+    <figcaption>Amber lines carry power, teal lines carry signals, and the dashed teal lines can wake the chip. The ring and the MP3 board take VBAT directly. The MOSFET connects their ground only while the chip is awake.</figcaption>
+  </figure>
+  <h3>The daily cycle</h3>
+  <figure>
+    <div class="fig">
+<svg viewBox="0 0 760 230" role="img" aria-label="Wake cycle: wake from INT or a button, read the clock, run the event, clear the flag, compute and program the next alarm, return to deep sleep">
+<defs><marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>
+<rect class="box" x="40" y="30" width="170" height="64" rx="8"/><text x="125" y="56" class="b">Wakes</text><text x="125" y="76" class="s">clock alarm or a touch</text>
+<rect class="box" x="300" y="30" width="170" height="64" rx="8"/><text x="385" y="56" class="b">Reads the clock</text><text x="385" y="76" class="s">7 bytes from DS3231 (UTC)</text>
+<rect class="box mcu" x="560" y="30" width="170" height="64" rx="8"/><text x="645" y="56" class="b">Runs the event</text><text x="645" y="76" class="s">light ramp or sound</text>
+<rect class="box" x="560" y="136" width="170" height="64" rx="8"/><text x="645" y="162" class="b">Clears flag A1F</text><text x="645" y="182" class="s">so INT can go high again</text>
+<rect class="box" x="300" y="136" width="170" height="64" rx="8"/><text x="385" y="162" class="b">next_event()</text><text x="385" y="182" class="s">programs Alarm 1 for the next one</text>
+<rect class="box" x="40" y="136" width="170" height="64" rx="8"/><text x="125" y="162" class="b">Deep sleep</text><text x="125" y="182" class="s">microamps</text>
+<line class="wire" x1="212" y1="62" x2="298" y2="62" marker-end="url(#a4)"/>
+<line class="wire" x1="472" y1="62" x2="558" y2="62" marker-end="url(#a4)"/>
+<line class="wire" x1="645" y1="96" x2="645" y2="134" marker-end="url(#a4)"/>
+<line class="wire" x1="558" y1="168" x2="472" y2="168" marker-end="url(#a4)"/>
+<line class="wire" x1="298" y1="168" x2="212" y2="168" marker-end="url(#a4)"/>
+<line class="wire sig dash" x1="125" y1="134" x2="125" y2="96" marker-end="url(#a4)"/><text class="s" x="135" y="118" style="text-anchor:start">next event is due</text>
+</svg>
+    </div>
+    <figcaption>Every wake restarts the program from the top (that is what ESP32 deep sleep means), so it re-reads everything from the DS3231 and relies on no memory.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="fig">
+<svg viewBox="0 0 680 262" role="img" aria-label="Lamp brightness and colour: starts 15 minutes before the prayer in deep red, rises quadratically through amber to warm white at its 60% cap at the prayer time, when the alarm sounds, and stays lit 10 minutes">
+<defs><linearGradient id="gSun" x1="60" y1="0" x2="610" y2="0" gradientUnits="userSpaceOnUse">
+<stop offset="0" stop-color="#2A0700"/><stop offset=".15" stop-color="#7A1404"/><stop offset=".35" stop-color="#C9420E"/><stop offset=".5" stop-color="#F08A2A"/><stop offset=".6" stop-color="#FFD39A"/><stop offset="1" stop-color="#FFD39A"/></linearGradient></defs>
+<polygon class="curve-fill" points="60,190 71,190 82,189 93,189 104,188 115,186 126,184 137,182 148,180 159,177 170,174 181,171 192,168 203,164 214,160 225,155 236,150 247,145 258,140 269,134 280,128 291,121 302,115 313,108 324,100 335,93 346,85 357,77 368,68 379,59 390,50 610,50 610,190 60,190"/>
+<line class="grid" x1="60" y1="190" x2="640" y2="190"/>
+<line class="grid dash" x1="170" y1="40" x2="170" y2="190"/><line class="grid dash" x1="280" y1="40" x2="280" y2="190"/><line class="grid dash" x1="500" y1="40" x2="500" y2="190"/><line class="grid dash" x1="610" y1="40" x2="610" y2="190"/>
+<polyline class="curve" points="60,190 71,190 82,189 93,189 104,188 115,186 126,184 137,182 148,180 159,177 170,174 181,171 192,168 203,164 214,160 225,155 236,150 247,145 258,140 269,134 280,128 291,121 302,115 313,108 324,100 335,93 346,85 357,77 368,68 379,59 390,50 610,50"/>
+<line class="wire sig" x1="390" y1="190" x2="390" y2="38" stroke-width="2"/><text x="390" y="28" class="b" style="fill:var(--signal)">Alarm at prayer</text>
+<rect x="60" y="196" width="550" height="12" rx="3" fill="url(#gSun)"/>
+<text x="54" y="206" class="s" style="text-anchor:end">colour</text>
+<text x="60" y="226" class="s">−15</text><text x="170" y="226" class="s">−10</text><text x="280" y="226" class="s">−5</text><text x="390" y="226" class="b">Prayer</text><text x="500" y="226" class="s">+5</text><text x="610" y="226" class="s">+10 min</text>
+<text x="200" y="152" class="s" style="text-anchor:start">brightness ∝ (time)² so the eye sees a smooth ramp</text>
+<text x="86" y="250" class="s" style="text-anchor:start">deep red → amber → warm white (255, 147, 41) × 60% cap</text>
+</svg>
+    </div>
+    <figcaption>Default rule: the ring starts in deep red 15 minutes before any alarm the lamp holds — a prayer, or one of yours — passes through amber and reaches warm white at its 60% brightness cap when the sound arrives, then stays on for 10 minutes. Each of those numbers is a field in the settings block.</figcaption>
+  </figure>
+</section>
+
+<section id="schedule">
+  <h2>What you can schedule</h2>
+  <p>The schedule is a short list of rules. Each rule says <b>which days</b>, <b>when</b> and <b>what to do</b>, and you can have as many rules as you like.</p>
+  <div class="cols">
+    <div class="callout"><strong>When</strong>
+    <ul>
+      <li><b>A prayer ± minutes</b>: <code>Prayer(Fajr, 0)</code> is Fajr itself, <code>Prayer(Asr, -20)</code> 20 minutes before Asr, <code>Prayer(Isha, 10)</code> 10 minutes after Isha. Fajr, Dhuhr, Asr, Maghrib and Isha are computed on the boot from the stored place, so they follow wherever the lamp is told it sits.</li>
+      <li><b>A fixed time</b> in Egypt time, for example 07:30. Daylight saving is handled automatically.</li>
+    </ul></div>
+    <div class="callout"><strong>Which days</strong>
+    <ul>
+      <li>Any mix of the week: every day, Sunday–Thursday, Friday only, and so on.</li>
+    </ul></div>
+  </div>
+  <div class="tablewrap"><table style="min-width:520px">
+    <thead><tr><th>Action</th><th>What it does</th></tr></thead>
+    <tbody>
+<tr><td><code>Sunrise { ramp_min }</code></td><td>The colour sunrise: deep red → amber → warm white over N minutes, finishing exactly at the rule’s time</td></tr>
+<tr><td><code>Play { track, volume, fade_in_s }</code></td><td>Plays <code>/mp3/000N.mp3</code> from the microSD card, fading the volume up over N seconds</td></tr>
+<tr><td><code>LampOn</code> / <code>LampOff</code></td><td>Turns the lamp on or off at that time</td></tr>
+<tr><td><code>Alarm { sound }</code></td><td>The lamp's own alarm. Today the panel flashes at full brightness and the tone index rides with the rule, so the ring and the card get it when they are wired.</td></tr>
+    </tbody></table></div>
+  <div class="codebox"><div class="codehead"><span>Example schedule</span><button type="button" data-copy="sched">Copy</button></div>
+<pre id="sched">const RULES: [Rule; 6] = [
+    // Every day: each prayer's own adhan (prayer n plays track n)
+    Rule { days: ALL_DAYS,    when: When::Prayer(Prayer::Dhuhr, 0),   action: Action::Play { track: 2, volume: 22, fade_in_s: 30 } },
+    Rule { days: ALL_DAYS,    when: When::Prayer(Prayer::Maghrib, 0), action: Action::Play { track: 4, volume: 22, fade_in_s: 30 } },
+    // Lamp on 10 minutes before Asr, off 30 minutes after Isha
+    Rule { days: ALL_DAYS,    when: When::Prayer(Prayer::Asr, -10),   action: Action::LampOn },
+    Rule { days: ALL_DAYS,    when: When::Prayer(Prayer::Isha, 30),   action: Action::LampOff },
+    // Sunday–Thursday: gentle wake-up at 07:30 with track 6
+    Rule { days: 0b0001_1111, when: When::Local(7*60 + 30), action: Action::Sunrise { ramp_min: 10 } },
+    Rule { days: 0b0001_1111, when: When::Local(7*60 + 30), action: Action::Play { track: 6, volume: 15, fade_in_s: 60 } },
+];
+// days: bit 0 = Sunday … bit 6 = Saturday</pre></div>
+  <h3>Buttons and menu</h3>
+  <p>The touch pad and any of the four buttons wake the lamp: the expander's interrupt shares the clock's wake line, so a press is as good as a tap. The buttons sit in a row under the screen and are read through the PCF8574 while the lamp is awake; ten seconds after the last press it goes back to sleep. A tap shows the standby face and lights the globe at 5% so you can read it. A hold of one second turns the lamp on or off, and any touch stops an alarm that is ringing. <b>OK</b> on the standby face opens the menu; <b>Back</b> steps out one level and, on the standby face, does nothing.</p>
+  <figure>
+    <div class="fig">
+<svg viewBox="0 0 760 340" role="img" aria-label="Mock-ups of the e-paper screens: the standby face with time, next prayer and the five prayer times; the menu; the prayer list with check boxes; the list of own alarms; the alarm editor; and the four button caps labelled Up, Down, OK and Back">
+<text x="132.5" y="30" class="s b">Standby face (OK opens the menu)</text><g transform="translate(20,38) scale(.9)"><rect width="250" height="122" rx="3" fill="#E9E6DC" stroke="var(--line2)" stroke-width="1.2"/><text x="12" y="56" style="fill:#1E1E1E;font-size:50px;font-weight:600;text-anchor:start;font-family:var(--f-display)">05:12</text><text x="238" y="19" style="fill:#1E1E1E;font-size:11px;font-weight:400;text-anchor:end;font-family:var(--f-body)" >Sun 25 Oct</text><rect x="196" y="25" width="26" height="11" rx="1.5" fill="none" stroke="#1E1E1E" stroke-width="1.2"/><rect x="222" y="28" width="2.5" height="5" fill="#1E1E1E"/><rect x="198" y="27" width="19.5" height="7" fill="#1E1E1E"/><text x="238" y="47" style="fill:#1E1E1E;font-size:9.5px;font-weight:400;text-anchor:end;font-family:var(--f-body)" >87%</text><text x="12" y="74" style="fill:#1E1E1E;font-size:12.5px;font-weight:400;text-anchor:start;font-family:var(--f-body)" >Next: Alarm 06:30, in 1h</text><text x="12" y="87" style="fill:#1E1E1E;font-size:9.5px;font-weight:400;text-anchor:start;font-family:var(--f-body)" >Alarm 07:30 Sun–Thu</text><line x1="8" x2="242" y1="92" y2="92" stroke="#1E1E1E" stroke-width=".8"/><text x="25" y="103" style="fill:#1E1E1E;font-size:8.5px;font-weight:400;text-anchor:middle;font-family:var(--f-body)" >Fajr</text><text x="25" y="116" style="fill:#1E1E1E;font-size:11px;font-weight:600;text-anchor:middle;font-family:var(--f-body)" >05:37</text><circle cx="41.0" cy="100.2" r="2.1" fill="#1E1E1E"/><text x="75" y="103" style="fill:#1E1E1E;font-size:8.5px;font-weight:400;text-anchor:middle;font-family:var(--f-body)" >Dhuhr</text><text x="75" y="116" style="fill:#1E1E1E;font-size:11px;font-weight:600;text-anchor:middle;font-family:var(--f-body)" >12:40</text><circle cx="93.5" cy="100.2" r="2.1" fill="#1E1E1E"/><text x="125" y="103" style="fill:#1E1E1E;font-size:8.5px;font-weight:400;text-anchor:middle;font-family:var(--f-body)" >Asr</text><text x="125" y="116" style="fill:#1E1E1E;font-size:11px;font-weight:600;text-anchor:middle;font-family:var(--f-body)" >15:50</text><circle cx="138.5" cy="100.2" r="2.1" fill="none" stroke="#1E1E1E" stroke-width="1"/><text x="175" y="103" style="fill:#1E1E1E;font-size:8.5px;font-weight:400;text-anchor:middle;font-family:var(--f-body)" >Maghrib</text><text x="175" y="116" style="fill:#1E1E1E;font-size:11px;font-weight:600;text-anchor:middle;font-family:var(--f-body)" >18:15</text><circle cx="198.5" cy="100.2" r="2.1" fill="none" stroke="#1E1E1E" stroke-width="1"/><text x="225" y="103" style="fill:#1E1E1E;font-size:8.5px;font-weight:400;text-anchor:middle;font-family:var(--f-body)" >Isha</text><text x="225" y="116" style="fill:#1E1E1E;font-size:11px;font-weight:600;text-anchor:middle;font-family:var(--f-body)" >19:33</text><circle cx="241.0" cy="100.2" r="2.1" fill="none" stroke="#1E1E1E" stroke-width="1"/></g><text x="382.5" y="30" class="s b">Menu</text><g transform="translate(270,38) scale(.9)"><rect width="250" height="122" rx="3" fill="#E9E6DC" stroke="var(--line2)" stroke-width="1.2"/><text x="12" y="23" style="fill:#1E1E1E;font-size:15px;font-weight:600;text-anchor:start;font-family:var(--f-body)" >Settings</text><line x1="8" x2="242" y1="30" y2="30" stroke="#1E1E1E" stroke-width=".8"/><rect x="6" y="38" width="238" height="21" fill="#1E1E1E"/><text x="14" y="54" style="fill:#E9E6DC;font-size:15px;font-weight:400;text-anchor:start;font-family:var(--f-body)" >Prayers</text><text x="236" y="54" style="fill:#E9E6DC;font-size:15px;font-weight:400;text-anchor:end;font-family:var(--f-body)" >›</text><text x="14" y="78" style="fill:#1E1E1E;font-size:15px;font-weight:400;text-anchor:start;font-family:var(--f-body)" >My alarms</text><text x="236" y="78" style="fill:#1E1E1E;font-size:15px;font-weight:400;text-anchor:end;font-family:var(--f-body)" >›</text></g><text x="632.5" y="30" class="s b">Prayers (OK toggles, saved at once)</text><g transform="translate(520,38) scale(.9)"><rect width="250" height="122" rx="3" fill="#E9E6DC" stroke="var(--line2)" stroke-width="1.2"/><text x="12" y="21" style="fill:#1E1E1E;font-size:14px;font-weight:600;text-anchor:start;font-family:var(--f-body)" >Prayers</text><line x1="8" x2="242" y1="27" y2="27" stroke="#1E1E1E" stroke-width=".8"/><rect x="14" y="36" width="10" height="10" fill="none" stroke="#1E1E1E" stroke-width="1.2"/><path d="M16 41 l2.6 3 l4.6 -7" fill="none" stroke="#1E1E1E" stroke-width="1.6"/><text x="34" y="45" style="fill:#1E1E1E;font-size:12px;font-weight:400;text-anchor:start;font-family:var(--f-body)" >Fajr</text><text x="236" y="45" style="fill:#1E1E1E;font-size:12px;font-weight:400;text-anchor:end;font-family:var(--f-body)" >05:37</text><rect x="14" y="53" width="10" height="10" fill="none" stroke="#1E1E1E" stroke-width="1.2"/><path d="M16 58 l2.6 3 l4.6 -7" fill="none" stroke="#1E1E1E" stroke-width="1.6"/><text x="34" y="62" style="fill:#1E1E1E;font-size:12px;font-weight:400;text-anchor:start;font-family:var(--f-body)" >Dhuhr</text><text x="236" y="62" style="fill:#1E1E1E;font-size:12px;font-weight:400;text-anchor:end;font-family:var(--f-body)" >12:40</text><rect x="6" y="66" width="238" height="17" fill="#1E1E1E"/><rect x="14" y="70" width="10" height="10" fill="none" stroke="#E9E6DC" stroke-width="1.2"/><text x="34" y="79" style="fill:#E9E6DC;font-size:12px;font-weight:400;text-anchor:start;font-family:var(--f-body)" >Asr</text><text x="236" y="79" style="fill:#E9E6DC;font-size:12px;font-weight:400;text-anchor:end;font-family:var(--f-body)" >15:50</text><rect x="14" y="87" width="10" height="10" fill="none" stroke="#1E1E1E" stroke-width="1.2"/><text x="34" y="96" style="fill:#1E1E1E;font-size:12px;font-weight:400;text-anchor:start;font-family:var(--f-body)" >Maghrib</text><text x="236" y="96" style="fill:#1E1E1E;font-size:12px;font-weight:400;text-anchor:end;font-family:var(--f-body)" >18:15</text><rect x="14" y="104" width="10" height="10" fill="none" stroke="#1E1E1E" stroke-width="1.2"/><text x="34" y="113" style="fill:#1E1E1E;font-size:12px;font-weight:400;text-anchor:start;font-family:var(--f-body)" >Isha</text><text x="236" y="113" style="fill:#1E1E1E;font-size:12px;font-weight:400;text-anchor:end;font-family:var(--f-body)" >19:33</text></g><text x="132.5" y="200" class="s b">My alarms (OK opens a slot)</text><g transform="translate(20,208) scale(.9)"><rect width="250" height="122" rx="3" fill="#E9E6DC" stroke="var(--line2)" stroke-width="1.2"/><text x="12" y="21" style="fill:#1E1E1E;font-size:14px;font-weight:600;text-anchor:start;font-family:var(--f-body)" >My alarms</text><line x1="8" x2="242" y1="27" y2="27" stroke="#1E1E1E" stroke-width=".8"/><text x="14" y="45" style="fill:#1E1E1E;font-size:12px;font-weight:400;text-anchor:start;font-family:var(--f-body)" >1</text><text x="34" y="45" style="fill:#1E1E1E;font-size:12px;font-weight:600;text-anchor:start;font-family:var(--f-body)" >07:30</text><text x="236" y="45" style="fill:#1E1E1E;font-size:11px;font-weight:400;text-anchor:end;font-family:var(--f-body)" >Sun–Thu</text><text x="14" y="62" style="fill:#1E1E1E;font-size:12px;font-weight:400;text-anchor:start;font-family:var(--f-body)" >2</text><text x="34" y="62" style="fill:#1E1E1E;font-size:12px;font-weight:600;text-anchor:start;font-family:var(--f-body)" >09:00</text><text x="236" y="62" style="fill:#1E1E1E;font-size:11px;font-weight:400;text-anchor:end;font-family:var(--f-body)" >Fri</text><rect x="6" y="66" width="238" height="17" fill="#1E1E1E"/><text x="14" y="79" style="fill:#E9E6DC;font-size:12px;font-weight:400;text-anchor:start;font-family:var(--f-body)" >3</text><text x="34" y="79" style="fill:#E9E6DC;font-size:12px;font-weight:400;text-anchor:start;font-family:var(--f-body)" >—</text><text x="236" y="79" style="fill:#E9E6DC;font-size:11px;font-weight:400;text-anchor:end;font-family:var(--f-body)" >empty</text><text x="14" y="96" style="fill:#1E1E1E;font-size:12px;font-weight:400;text-anchor:start;font-family:var(--f-body)" >4</text><text x="34" y="96" style="fill:#1E1E1E;font-size:12px;font-weight:400;text-anchor:start;font-family:var(--f-body)" >—</text><text x="236" y="96" style="fill:#1E1E1E;font-size:11px;font-weight:400;text-anchor:end;font-family:var(--f-body)" >empty</text><text x="14" y="113" style="fill:#1E1E1E;font-size:12px;font-weight:400;text-anchor:start;font-family:var(--f-body)" >5</text><text x="34" y="113" style="fill:#1E1E1E;font-size:12px;font-weight:400;text-anchor:start;font-family:var(--f-body)" >—</text><text x="236" y="113" style="fill:#1E1E1E;font-size:11px;font-weight:400;text-anchor:end;font-family:var(--f-body)" >empty</text></g><text x="382.5" y="200" class="s b">Editing (Back throws the change away)</text><g transform="translate(270,208) scale(.9)"><rect width="250" height="122" rx="3" fill="#E9E6DC" stroke="var(--line2)" stroke-width="1.2"/><text x="12" y="21" style="fill:#1E1E1E;font-size:14px;font-weight:600;text-anchor:start;font-family:var(--f-body)" >Alarm 1</text><line x1="8" x2="242" y1="27" y2="27" stroke="#1E1E1E" stroke-width=".8"/><rect x="10" y="34" width="68" height="44" fill="#1E1E1E"/><text x="14" y="70" style="fill:#E9E6DC;font-size:44px;font-weight:600;text-anchor:start;font-family:var(--f-display)">07</text><text x="80" y="70" style="fill:#1E1E1E;font-size:44px;font-weight:600;text-anchor:start;font-family:var(--f-display)">:30</text><text x="12" y="95" style="fill:#1E1E1E;font-size:12.5px;font-weight:400;text-anchor:start;font-family:var(--f-body)" >Days: Sun–Thu</text><rect x="150" y="84" width="42" height="17" fill="none" stroke="#1E1E1E" stroke-width="1.2"/><text x="171" y="96.5" style="fill:#1E1E1E;font-size:11px;font-weight:400;text-anchor:middle;font-family:var(--f-body)" >Save</text><rect x="198" y="84" width="44" height="17" fill="none" stroke="#1E1E1E" stroke-width="1.2"/><text x="220" y="96.5" style="fill:#1E1E1E;font-size:11px;font-weight:400;text-anchor:middle;font-family:var(--f-body)" >Delete</text><text x="12" y="116" style="fill:#1E1E1E;font-size:9px;font-weight:400;text-anchor:start;font-family:var(--f-body)" >▲▼ change · OK next · ◀ cancel</text></g><text x="632.5" y="200" class="s b">The four caps (right side)</text><rect x="520" y="208" width="225" height="110" rx="8" fill="var(--surface2)" stroke="var(--line2)"/><circle cx="556" cy="225" r="8.5" fill="var(--shell-hi)" stroke="var(--shell-edge)" stroke-width="1.4"/><text x="556" y="229" style="fill:#fff;font-size:9px;text-anchor:middle">▲</text><text x="582" y="229" class="b" style="text-anchor:start">Up</text><text x="735" y="229" class="s" style="text-anchor:end">PCF8574 P0</text><circle cx="556" cy="250" r="8.5" fill="var(--shell-hi)" stroke="var(--shell-edge)" stroke-width="1.4"/><text x="556" y="254" style="fill:#fff;font-size:9px;text-anchor:middle">▼</text><text x="582" y="254" class="b" style="text-anchor:start">Down</text><text x="735" y="254" class="s" style="text-anchor:end">PCF8574 P1</text><circle cx="556" cy="275" r="8.5" fill="var(--shell-hi)" stroke="var(--shell-edge)" stroke-width="1.4"/><text x="556" y="279" style="fill:#fff;font-size:9px;text-anchor:middle">●</text><text x="582" y="279" class="b" style="text-anchor:start">OK</text><text x="735" y="279" class="s" style="text-anchor:end">PCF8574 P2</text><circle cx="556" cy="300" r="8.5" fill="var(--shell-hi)" stroke="var(--shell-edge)" stroke-width="1.4"/><text x="556" y="304" style="fill:#fff;font-size:9px;text-anchor:middle">◀</text><text x="582" y="304" class="b" style="text-anchor:start">Back</text><text x="735" y="304" class="s" style="text-anchor:end">PCF8574 P3</text>
+</svg>
+    </div>
+    <figcaption>Mock-ups at the display's 250 × 122 pixels, drawn from the menu code's states (the real drawing code is in <code>src/display.rs</code>, and the sample times are Cairo on 25 October 2026). The row of dots on the standby face shows which prayers ring (here Fajr and Dhuhr). The face on the lamp follows this layout with three differences: the battery line waits for the INA219 to be wired, the next alarm takes over the <i>Next</i> line when it falls before the next prayer rather than having a line of its own, and the strip's meridiem is one letter because a column is fifty pixels wide. Up and Down move or change a value, OK selects or moves to the next field, Back goes out. An alarm's days come from four presets (every day, Sunday–Thursday, Friday and Saturday, Friday only). A user alarm only plays the alarm flash; the prayers play tracks 1 to 5 from the card.</figcaption>
+  </figure>
+  <div class="tablewrap"><table style="min-width:520px">
+    <thead><tr><th>Where</th><th>What it is</th><th>Tested</th></tr></thead>
+    <tbody>
+<tr><td>Prayer switches</td><td>Each of the five prayers on or off. An enabled prayer gets the same 15-minute colour sunrise and sound as any alarm: ramps finish at it, and prayer <i>n</i> plays <code>/mp3/000n.mp3</code>.</td><td>Yes, on the PC</td></tr>
+<tr><td>Own alarms</td><td>Up to eight, each with a time, a days preset, a tone and on/off. An alarm is built like a prayer: the light ramps before it and the tone it carries arrives at its minute (the <code>Alarm</code> action, the panel until the card is wired).</td><td>Yes, on the PC</td></tr>
+<tr><td>Storage</td><td>A 212-byte block with a version and a checksum; blank or damaged means the defaults. Kept in two flash sectors, so a change survives an unplug.</td><td>Yes, on the board</td></tr>
+<tr><td>Buttons</td><td>PCF8574 pins P0 to P3, active low, a key counts after two identical reads; chords are ignored</td><td>Yes, on the board</td></tr>
+<tr><td>Battery</td><td>INA219 bus-voltage reading turned into a rough percentage with a generic 18650 curve; replace the curve with the measured one</td><td>Register maths yes, hardware no</td></tr>
+    </tbody></table></div>
+  <p class="muted">Not yet possible: per-rule days or offsets from the menu (only the presets above, and prayers are always at their exact time), one-off dates, a brightness or colour per rule, and snooze. The menu itself runs on the board.</p>
+</section>
+</main>
+<script src="site.js"></script>
+</body></html>
