@@ -25,7 +25,7 @@ use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{IpAddress, Stack};
 use embassy_time::with_timeout;
 use esp_hal::i2c::master::{Config, I2c};
-use lamp_core::calendar::{civil_from_days, utc_to_egypt};
+use lamp_core::calendar::civil_from_days;
 // This creates a default app-descriptor required by the esp-idf bootloader.
 // For more information see: <https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/app_image_format.html#application-description>
 const NTP_UNIX_OFFSET: i64 = 2_208_988_800;

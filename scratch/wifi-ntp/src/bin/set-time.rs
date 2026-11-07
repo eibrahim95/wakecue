@@ -27,7 +27,7 @@ use esp_hal::timer::timg::TimerGroup;
 use esp_println as _;
 use esp_radio::wifi::sta::StationConfig;
 use esp_radio::wifi::{AuthenticationMethodConfig, Config, Interface};
-use lamp_core::calendar::{civil_from_days, utc_to_egypt};
+use lamp_core::calendar::{Zone, civil_from_days};
 use lamp_core::ds3231;
 use static_cell::StaticCell;
 
@@ -163,7 +163,7 @@ async fn ntp_unix_seconds(stack: Stack<'_>, server: IpAddress) -> Option<i64> {
 
 fn print_utc(unix: &i64) {
     let utc_min = unix.div_euclid(60);
-    let local_min = utc_to_egypt(utc_min);
+    let local_min = Zone::CAIRO.to_local(utc_min);
     let (y, mo, d) = civil_from_days(local_min.div_euclid(1440) as i32);
     let minute_of_day = local_min.rem_euclid(1440);
     info!(
