@@ -10,3 +10,6 @@ target/
 firmware_ws/wakecue/settings.text
 firmware_ws/wakecue/settings-dump.bin
 firmware_ws/wakecue/settings-sector.bin
+
+# Vendor datasheets: large PDFs, re-downloadable (see docs/datasheets/*/README.md)
+docs/datasheets/
