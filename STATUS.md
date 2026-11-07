@@ -42,6 +42,7 @@ Each line has a row in `docs/build-log.html`.
 - The prayer strip on the face: drawn on every face, but nobody has checked
   that its times and dots match the switches.
 - The 30 s deadline on the network phase: written, never seen firing.
+
 ## In hand
 
 Everything in the parts list (`docs/hardware.html#bom`) except the Amazon.eg
