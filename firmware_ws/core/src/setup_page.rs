@@ -447,7 +447,7 @@ spellcheck=false autocomplete=new-password><small>Leave empty to keep the saved 
 pub fn render_saved(out: &mut [u8]) -> Option<usize> {
     let mut p = Page::new(out);
     p.raw(HEAD);
-    p.raw("<p>Saved. The lamp now follows this zone and place.</p>");
+    p.raw("<p>Saved. Press Back on the lamp: it will follow this zone and place, join your Wi-Fi and set its clock.</p>");
     p.done()
 }
 
@@ -597,7 +597,7 @@ mod tests {
         let n = render_saved(&mut buf).unwrap();
         let html = String::from_utf8(buf[..n].to_vec()).unwrap();
         assert!(html.contains("<title>Wakecue setup</title>"));
-        assert!(html.contains("Saved. The lamp now follows this zone and place."));
+        assert!(html.contains("Saved. Press Back on the lamp"));
         assert!(!html.contains("<form"));
     }
 

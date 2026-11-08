@@ -33,7 +33,7 @@ Each line has a row in `docs/build-log.html`.
   hour, the minute (00, 15, 30, 45) and the rule, and writes them on Save.
 - **The phone setup:** top menu, fourth row. The lamp raises an open network `Wakecue-XXXX` at
   192.168.4.1 and answers DHCP from `core::dhcp`; a phone joined it and was given `.2`. Back or
-  a touch resets into the normal program.
+  a touch resets into the normal program. The Saved page now says what happens next.
 - **The setup page:** on that network DNS answers every name with 192.168.4.1, a web server on
   port 80 serves one form for the Wi-Fi name and password, the time zone and the place, and a
   valid form is written to flash like a menu change. An Android phone offered to sign in by
@@ -44,6 +44,15 @@ Each line has a row in `docs/build-log.html`.
 
 ## Written but not yet seen
 
+- The clock set from the network (`wakecue/src/station.rs`, `core::ntp`): on a boot where the
+  DS3231 says it lost power and a Wi-Fi name is stored, the lamp joins that network, asks
+  `time.google.com` for the time, writes the clock, clears the power-loss flag, records
+  `setup.wifi` and `setup.clock`, and resets into a clean boot. Any failure inside 30 s falls back
+  to waking once a minute. NTP parsing is tested on the PC (4 tests); nothing of it has run on the
+  board.
+- The first-boot setup: with nothing stored the lamp raises `Wakecue-XXXX` by itself. Back or a
+  touch skips it by writing the settings as they stand, with the place marked as decided, so it
+  does not ask again. To try it, wipe the settings block (`espflash erase-region 0x9000 0x2000`).
 - The five prayer times computed on the boot from the stored place
   (`core::astro`): checked on the PC against all 18,260 times of the old Cairo
   table; not yet compared on the glass.

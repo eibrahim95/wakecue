@@ -11,6 +11,7 @@ pub mod ds3231;
 pub mod http;
 pub mod ina219;
 pub mod menu;
+pub mod ntp;
 pub mod portal;
 pub mod ramp;
 pub mod schedule;

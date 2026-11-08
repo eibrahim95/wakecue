@@ -2,8 +2,9 @@
 //!
 //! This is a different program from the one that wakes, reads the clock and sleeps. It needs a
 //! heap, a scheduler and the radio, none of which the normal path pays for, so nothing here is
-//! started until the owner picks "Phone setup" in the menu. [`run`] never returns: it ends the
-//! normal program for good, and Back or a touch resets the chip back into it.
+//! started until the owner picks "Phone setup" in the menu, or the lamp finds nothing stored at all
+//! and so has never been set up. [`run`] never returns: it ends the normal program for good, and
+//! Back or a touch resets the chip back into it.
 //!
 //! Three small servers share the network: DHCP gives the phone an address, DNS answers every name
 //! with the lamp's own address, and a web server on port 80 serves the one setup page. The phone
@@ -18,15 +19,15 @@ use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{
     IpAddress, IpEndpoint, Ipv4Address, Ipv4Cidr, Runner, Stack, StackResources, StaticConfigV4,
 };
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer, with_timeout};
-use esp_storage::FlashStorage;
 use esp_hal::gpio::Input;
 use esp_hal::i2c::master::I2c;
-use esp_hal::peripherals::{FROM_CPU_INTR0, TIMG0, WIFI};
 use esp_hal::rng::Rng;
-use esp_hal::timer::timg::TimerGroup;
 use esp_radio::wifi::ap::{AccessPointConfig, EventInfo};
 use esp_radio::wifi::{Config, Interface, WifiController};
+use esp_storage::FlashStorage;
 use lamp_core::buttons::{self, Key, KeyReader};
 use lamp_core::dhcp::{self, Kind, Server};
 use lamp_core::dns;
@@ -34,8 +35,9 @@ use lamp_core::http::{self, Parsed};
 use lamp_core::portal::{self, BODY_MAX, HEAD_MAX};
 use lamp_core::settings::{Settings, Stored};
 use static_cell::StaticCell;
-
 use wakecue::display::Face;
+
+use crate::radio::Radio;
 
 /// The lamp's address on its own network. The first of the eight it hands out is `.2`.
 const LAMP: [u8; 4] = [192, 168, 4, 1];
@@ -52,27 +54,37 @@ const REQUEST_MAX: usize = 2048;
 /// How long a connection may take to send its request, and to take the reply.
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Raise `Wakecue-XXXX` and serve DHCP until Back or a touch resets the chip.
+/// What the page's task and the leave task both touch: the flash, what is in it, and the settings
+/// the page is editing. One lock, so a save and a skip can never write at the same moment.
+struct Shared {
+    flash: FlashStorage<'static>,
+    sectors: [Option<Stored>; 2],
+    settings: Settings,
+}
+
+type State = Mutex<CriticalSectionRawMutex, Shared>;
+
+/// Raise `Wakecue-XXXX` and serve the setup page until Back or a touch resets the chip.
+///
+/// `first_boot` says the lamp had nothing stored: leaving then writes the settings as they stand,
+/// with the place marked as decided, so a lamp whose owner skipped the setup does not ask again at
+/// the next power-on. From the menu, leaving writes nothing: the page has already stored what it
+/// was given.
 ///
 /// The panel is drawn once with the network's name and put to sleep, so its picture stays up for
 /// as long as the radio runs.
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     mut face: Face,
-    wifi: WIFI<'static>,
-    timer: TIMG0<'static>,
-    interrupt: FROM_CPU_INTR0<'static>,
+    radio: Radio,
     bus: I2c<'static, esp_hal::Blocking>,
     pad: Input<'static>,
     flash: FlashStorage<'static>,
     sectors: [Option<Stored>; 2],
     settings: Settings,
+    first_boot: bool,
 ) -> ! {
-    esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 66320);
-    let timg0 = TimerGroup::new(timer);
-    esp_rtos::start(timg0.timer0, interrupt);
-
-    let mut controller =
-        WifiController::new(wifi, Default::default()).expect("Wi-Fi controller");
+    let mut controller = radio.controller;
 
     // The name carries the last two bytes of the access point's own MAC, so two lamps in one
     // house raise two different networks and the owner can tell theirs by the sticker.
@@ -81,8 +93,8 @@ pub fn run(
     let ssid = format!("Wakecue-{:02X}{:02X}", mac[4], mac[5]);
     info!("setup: raising {}", ssid.as_str());
 
-    // Open on purpose: nothing sensitive crosses it, and there is no password to print on a lamp
-    // the owner has not set up yet. Four stations at most; a phone and a laptop is the use.
+    // Open on purpose: nothing sensitive is kept on it, and there is no password to print on a
+    // lamp the owner has not set up yet. Four stations at most; a phone and a laptop is the use.
     let ap = AccessPointConfig::default()
         .with_ssid(ssid.as_str().try_into().expect("SSID fits in 32 bytes"))
         .with_max_connections(4);
@@ -105,14 +117,17 @@ pub fn run(
     let (stack, runner) =
         embassy_net::new(interface, net_config, RESOURCES.init(StackResources::new()), seed);
 
+    static STATE: StaticCell<State> = StaticCell::new();
+    let state: &'static State = STATE.init(Mutex::new(Shared { flash, sectors, settings }));
+
     static EXECUTOR: StaticCell<esp_rtos::embassy::Executor> = StaticCell::new();
     EXECUTOR.init(esp_rtos::embassy::Executor::new()).run(move |spawner: Spawner| {
         spawner.spawn(net_task(runner).unwrap());
         spawner.spawn(dhcp_task(stack).unwrap());
         spawner.spawn(dns_task(stack).unwrap());
-        spawner.spawn(http_task(stack, flash, sectors, settings).unwrap());
+        spawner.spawn(http_task(stack, state).unwrap());
         spawner.spawn(events_task(controller).unwrap());
-        spawner.spawn(leave_task(bus, pad).unwrap());
+        spawner.spawn(leave_task(bus, pad, state, first_boot).unwrap());
     })
 }
 
@@ -221,15 +236,10 @@ async fn send_all(socket: &mut TcpSocket<'_>, mut data: &[u8]) -> bool {
 /// The setup page, one connection at a time. A phone that opens a second connection while this one
 /// is busy is refused and tries again, which the portal checks are happy to do.
 ///
-/// This task owns the settings and the flash: the page edits a copy, and only a form that passed
-/// every check is written, the same way the menu stores a change.
+/// The page edits the shared settings, and only a form that passed every check is written, the
+/// same way the menu stores a change.
 #[embassy_executor::task]
-async fn http_task(
-    stack: Stack<'static>,
-    mut flash: FlashStorage<'static>,
-    mut sectors: [Option<Stored>; 2],
-    mut settings: Settings,
-) -> ! {
+async fn http_task(stack: Stack<'static>, state: &'static State) -> ! {
     let mut rx_buf = [0u8; 1024];
     let mut tx_buf = [0u8; 2048];
     let mut socket = TcpSocket::new(stack, &mut rx_buf, &mut tx_buf);
@@ -259,9 +269,11 @@ async fn http_task(
             }
         };
 
-        match parsed {
+        let (head_len, body_len) = match parsed {
             Some(Parsed::Complete(req)) => {
-                let reply = portal::respond(&req, &mut settings, &mut head, &mut body);
+                let mut shared = state.lock().await;
+                let Shared { flash, sectors, settings } = &mut *shared;
+                let reply = portal::respond(&req, settings, &mut head, &mut body);
                 info!(
                     "setup: http {} {}, {} bytes back, saved {}",
                     match req.method {
@@ -274,25 +286,26 @@ async fn http_task(
                     reply.saved
                 );
                 if reply.saved {
-                    // `respond` has changed this task's copy; the flash write is what makes it
+                    // `respond` has changed the shared copy; the flash write is what makes it
                     // outlast the reset that ends the setup.
-                    if !crate::store(&mut flash, &mut sectors, settings) {
+                    if !crate::store(flash, sectors, *settings) {
                         info!("setup: the change could not be written to flash");
                     }
                 }
-                let _ = send_all(&mut socket, &head[..reply.head]).await
-                    && send_all(&mut socket, &body[..reply.body]).await;
+                (reply.head, reply.body)
             }
-            Some(_) => {
-                let n = http::head(&mut head, http::Status::BadRequest, "text/plain", 0, None).unwrap_or(0);
-                let _ = send_all(&mut socket, &head[..n]).await;
-            }
-            None => {
-                let n = http::head(&mut head, http::Status::PayloadTooLarge, "text/plain", 0, None)
-                    .unwrap_or(0);
-                let _ = send_all(&mut socket, &head[..n]).await;
-            }
-        }
+            Some(_) => (
+                http::head(&mut head, http::Status::BadRequest, "text/plain", 0, None).unwrap_or(0),
+                0,
+            ),
+            None => (
+                http::head(&mut head, http::Status::PayloadTooLarge, "text/plain", 0, None)
+                    .unwrap_or(0),
+                0,
+            ),
+        };
+        let _ = send_all(&mut socket, &head[..head_len]).await
+            && send_all(&mut socket, &body[..body_len]).await;
         let _ = with_timeout(IO_TIMEOUT, socket.flush()).await;
         socket.close();
         let _ = with_timeout(IO_TIMEOUT, socket.flush()).await;
@@ -302,21 +315,36 @@ async fn http_task(
 
 /// Back or a touch ends the setup: a reset puts the lamp back into its normal program, which
 /// starts from the clock and the stored settings as it always does.
+///
+/// On a first boot that is also the skip. The lamp would otherwise find nothing stored at the next
+/// reset and start the setup again, so the settings as they stand (the defaults, or what the page
+/// stored) are written once more with the place marked as decided.
 #[embassy_executor::task]
-async fn leave_task(mut bus: I2c<'static, esp_hal::Blocking>, pad: Input<'static>) -> ! {
+async fn leave_task(
+    mut bus: I2c<'static, esp_hal::Blocking>,
+    pad: Input<'static>,
+    state: &'static State,
+    first_boot: bool,
+) -> ! {
     let mut reader = KeyReader::default();
     let mut port = [0u8; 1];
     loop {
         Timer::after(Duration::from_millis(POLL_MS)).await;
-        if bus.read(buttons::PCF8574_ADDR, &mut port).is_ok() {
-            if reader.update(port[0]) == Some(Key::Back) {
-                info!("setup: Back, resetting");
-                esp_hal::system::software_reset();
+        let back = bus.read(buttons::PCF8574_ADDR, &mut port).is_ok()
+            && reader.update(port[0]) == Some(Key::Back);
+        let touch = pad.is_high();
+        if !(back || touch) {
+            continue;
+        }
+        info!("setup: {}, resetting", if back { "Back" } else { "touch" });
+        if first_boot {
+            let mut shared = state.lock().await;
+            let Shared { flash, sectors, settings } = &mut *shared;
+            settings.setup.place = true;
+            if !crate::store(flash, sectors, *settings) {
+                info!("setup: the skip could not be written to flash");
             }
         }
-        if pad.is_high() {
-            info!("setup: touch, resetting");
-            esp_hal::system::software_reset();
-        }
+        esp_hal::system::software_reset();
     }
 }

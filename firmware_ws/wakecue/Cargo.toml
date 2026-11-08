@@ -26,8 +26,12 @@ esp-rtos = { version = "0.4.0", features = ["defmt", "embassy", "esp-alloc", "es
 esp-alloc = { version = "0.11.0", features = ["defmt", "esp32c3"] }
 esp-radio = { version = "1.0.0-beta.1", features = ["defmt", "esp-alloc", "esp32c3", "unstable", "wifi"] }
 embassy-executor = { version = "0.10.0", features = ["defmt"] }
-embassy-net = { version = "0.9.1", features = ["defmt", "medium-ethernet", "proto-ipv4", "udp", "tcp"] }
+embassy-net = { version = "0.9.1", features = ["defmt", "medium-ethernet", "proto-ipv4", "udp", "tcp", "dhcpv4", "dns"] }
 embassy-time = { version = "0.5.0", features = ["defmt"] }
+# Already in the tree through embassy-net: the clock sync polls one future by hand, and the setup
+# mode shares the settings and the flash between its tasks.
+embassy-futures = "0.1"
+embassy-sync = "0.8"
 static_cell = "2.1.1"
 esp-backtrace = { version = "0.20.0", features = [
   "defmt",

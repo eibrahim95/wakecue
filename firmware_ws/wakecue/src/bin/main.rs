@@ -34,8 +34,12 @@ use wakecue::display::{Face, NextUp, PanelBus, Standby};
 
 // The phone setup needs a heap and the radio, which the other binaries in this crate do not
 // link, so it belongs to this binary and not to the library.
+#[path = "../radio.rs"]
+mod radio;
 #[path = "../setup.rs"]
 mod setup;
+#[path = "../station.rs"]
+mod station;
 
 /// How long an alarm nobody answers keeps flashing before the lamp gives up and goes back to
 /// sleep. A real ring should ring for longer than this; the panel is a stand-in, not a clock radio.
@@ -89,6 +93,15 @@ fn main() -> ! {
     // The clock on the wall comes from the same block: the offset and summer-time rule the owner
     // picked, not Egypt's.
     let mut zone = settings.zone();
+    // Nothing stored at all means this lamp has never been set up.
+    let first_boot = stored.is_none();
+    // The radio's parts wait here until the clock sync or the phone setup needs them; whichever
+    // comes first starts it, once.
+    let mut radio = radio::Lazy::new(radio::Parts {
+        wifi: peripherals.WIFI,
+        timer: peripherals.TIMG0,
+        interrupt: peripherals.FROM_CPU_INTR0,
+    });
 
     // The display owns GPIO0, 1, 2, 8 and 9 (reset, busy, data/command, data, clock), so
     // this firmware never drives the onboard LED: it shares GPIO8 with the SPI data line.
@@ -158,9 +171,45 @@ fn main() -> ! {
     // The light ramp is not an alarm, and nothing is wired to ring yet.
     let mut alarm: Option<(i64, Action)> = None;
     if osf {
-        // There is no Wi-Fi and no settings page in this crate yet, so the time cannot be
-        // fetched. Keep waking once a minute rather than parking the lamp on a clock it
-        // does not trust; this branch becomes the "set the time" page.
+        // The clock lost power, so its time cannot be believed. With a network stored, ask it for
+        // the time: the finished lamp does this once, after the setup page, and never again unless
+        // the clock loses power. Any failure just falls through to waking once a minute, so a wrong
+        // password cannot keep the lamp awake or stop the boot.
+        if settings.ssid().is_empty() {
+            info!("osf set: no network stored, the time cannot be fetched");
+        } else {
+            info!("osf set: joining {} for the time", settings.ssid());
+            if let Some(unix) = station::sync(radio.get(), settings.ssid(), settings.psk()) {
+                let regs = ds3231::time_registers(unix);
+                let mut frame = [0u8; 8];
+                frame[0] = ds3231::REG_TIME;
+                frame[1..].copy_from_slice(&regs);
+                i2c.write(ds3231::I2C_ADDR, &frame).expect("write time");
+                // A fresh time is the sign-off: only now may the power-loss flag go, and the stale
+                // alarm flag with it, so nothing claims to be due from before the loss.
+                let mut st = [0u8; 1];
+                i2c.write_read(ds3231::I2C_ADDR, &[ds3231::REG_STATUS], &mut st)
+                    .expect("status");
+                i2c.write(
+                    ds3231::I2C_ADDR,
+                    &[
+                        ds3231::REG_STATUS,
+                        st[0] & !(ds3231::STATUS_A1F | ds3231::STATUS_OSF),
+                    ],
+                )
+                .expect("clear flags");
+                let mut done = settings;
+                done.setup.wifi = true;
+                done.setup.clock = true;
+                if !store(&mut flash, &mut sectors, done) {
+                    info!("settings: the setup flags could not be written");
+                }
+                info!("clock set from the network to {} UTC, resetting", Stamp(unix.div_euclid(60)));
+                // A clean boot with a clock that can be believed, instead of patching this one up.
+                esp_hal::system::software_reset();
+            }
+            info!("osf set: no time from the network");
+        }
         info!("osf set: time untrusted, arming a one-minute wake");
     } else {
         let mut rules = [Rule {
@@ -209,6 +258,12 @@ fn main() -> ! {
     // The panel is the lamp's face, so it is drawn once the boot knows what it is looking at:
     // a face that woke before the clock was read could only show yesterday's minute.
     let mut face = Face::new(PanelBus::new(spi, dc), busy, rst, woken);
+    // A lamp with nothing stored has never been set up: raise the setup network at once. It can be
+    // skipped with Back or a touch, which writes the defaults down so it does not ask again.
+    if first_boot {
+        info!("first boot: nothing stored, raising the setup network (Back or touch skips it)");
+        setup::run(face, radio.take(), i2c, pad, flash, sectors, settings, true);
+    }
     // Asleep unless a hand woke the lamp: the corner mark is what the lamp shows while it is
     // down, and it comes off for as long as somebody is standing in front of it.
     // A boot that woke for an alarm goes straight to the alarm: drawing the clock first would put
@@ -317,17 +372,7 @@ fn main() -> ! {
                 if outcome.setup {
                     // The owner asked for the phone setup. It is a different program, and it
                     // never returns: Back or a touch resets the chip into this one again.
-                    setup::run(
-                        face,
-                        peripherals.WIFI,
-                        peripherals.TIMG0,
-                        peripherals.FROM_CPU_INTR0,
-                        i2c,
-                        pad,
-                        flash,
-                        sectors,
-                        menu.settings,
-                    );
+                    setup::run(face, radio.take(), i2c, pad, flash, sectors, menu.settings, false);
                 }
                 if outcome.save {
                     // The menu has already changed its own copy. This is the only place a block is
