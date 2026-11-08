@@ -73,6 +73,9 @@ Each line has a row in `docs/build-log.html`.
   replaces "z z z" as the sleep mark (the corner is kept for the battery later), "Next:" moved down
   5 px, and thin vertical lines separate the five prayers. Builds; not flashed, so the spacing is
   unseen on the panel.
+- **The prayer strip:** each name and its dot are centred as one piece over its time, the five columns
+  are centred on the rule, and the prayer named on the "Next:" line is drawn white on black (not
+  when the next thing is an alarm). Builds; not flashed.
 - **One rule for every settings screen:** Up and Down only move between rows. OK on a value row
   activates it (the row turns black, the value sits between `<` and `>`), Up and Down then change
   it, and OK or Back deactivates it where it stands. OK on the Rings row flips it; OK on the boxed

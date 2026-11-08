@@ -252,37 +252,64 @@ impl Face {
             let _ = Line::new(Point::new(10, 88), Point::new(240, 88))
                 .into_styled(rule)
                 .draw(frame);
-            // Where each column's ink starts and ends, so a divider can sit in the gap between two
-            // columns. The names differ in width ("Asr" against "Maghrib"), so the gaps do too.
+            // The prayer the "Next:" line names, if it names one rather than an alarm: its column is
+            // drawn white on black.
+            let next_prayer = match s.next {
+                Some(NextUp::Prayer(_, p)) => Some(p.index()),
+                _ => None,
+            };
+            // The name and its dot are centred on the column as one piece, with the time centred
+            // under that piece. The names differ in width ("Asr" against "Maghrib"), so first work
+            // out where each column's ink starts and ends: the dividers go in the gaps between them.
+            let mut bufs = [[0u8; SHORT_LEN]; 5];
+            let mut times = [""; 5];
             let mut span = [(0i32, 0i32); 5];
-            for (i, p) in Prayer::ALL.iter().enumerate() {
-                let cx = 24 + i as i32 * 48;
-                let name = p.name();
-                let w = name.len() as i32 * 6;
-                let _ = Text::new(name, Point::new(cx - w / 2, 98), small).draw(frame);
-
-                let dot = Circle::new(Point::new(cx + w / 2 + 3, 92), 5);
-                let ring = s.prayers_on & (1 << p.index()) != 0;
-                let style = if ring {
-                    PrimitiveStyle::with_fill(Color::Black)
-                } else {
-                    PrimitiveStyle::with_stroke(Color::Black, 1)
-                };
-                let _ = dot.into_styled(style).draw(frame);
-
-                let mut t_buf = [0u8; SHORT_LEN];
-                let t = match s.today[i] {
-                    Some(min) => hhmm12_short(min, &mut t_buf),
+            for (i, buf) in bufs.iter_mut().enumerate() {
+                let cx = 29 + i as i32 * 48;
+                let group = Prayer::ALL[i].name().len() as i32 * 6 + 3 + 5;
+                times[i] = match s.today[i] {
+                    Some(min) => hhmm12_short(min, buf),
                     None => "--:--",
                 };
-                let _ = Text::new(t, Point::new(cx - t.len() as i32 * 3, 111), small).draw(frame);
-
-                let left = (cx - w / 2).min(cx - t.len() as i32 * 3);
-                let right = (cx + w / 2 + 3 + 5).max(cx + t.len() as i32 * 3);
-                span[i] = (left, right);
+                let half = group.max(times[i].len() as i32 * 6) / 2;
+                span[i] = (cx - half, cx + half);
             }
-            for pair in span.windows(2) {
-                let x = (pair[0].1 + pair[1].0) / 2;
+            let mut edge = [10i32, 0, 0, 0, 0, 240];
+            for k in 1..5 {
+                edge[k] = (span[k - 1].1 + span[k].0) / 2;
+            }
+            for (i, p) in Prayer::ALL.iter().enumerate() {
+                let cx = 29 + i as i32 * 48;
+                let inverted = next_prayer == Some(i);
+                let ink = if inverted { Color::White } else { Color::Black };
+                let style = MonoTextStyle::new(&FONT_6X10, ink);
+                if inverted {
+                    let _ = Rectangle::new(
+                        Point::new(edge[i], 90),
+                        Size::new((edge[i + 1] - edge[i]) as u32, 25),
+                    )
+                    .into_styled(PrimitiveStyle::with_fill(Color::Black))
+                    .draw(frame);
+                }
+                let name = p.name();
+                let w = name.len() as i32 * 6;
+                let x = cx - (w + 8) / 2;
+                let _ = Text::new(name, Point::new(x, 98), style).draw(frame);
+
+                let ring = s.prayers_on & (1 << p.index()) != 0;
+                let dot = Circle::new(Point::new(x + w + 3, 92), 5);
+                let _ = dot
+                    .into_styled(if ring {
+                        PrimitiveStyle::with_fill(ink)
+                    } else {
+                        PrimitiveStyle::with_stroke(ink, 1)
+                    })
+                    .draw(frame);
+
+                let t = times[i];
+                let _ = Text::new(t, Point::new(cx - t.len() as i32 * 3, 111), style).draw(frame);
+            }
+            for &x in &edge[1..5] {
                 let _ = Line::new(Point::new(x, 92), Point::new(x, 114)).into_styled(rule).draw(frame);
             }
         }
