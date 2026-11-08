@@ -67,10 +67,14 @@ Each line has a row in `docs/build-log.html`.
 
 ## Written but not yet seen
 
-- **The volume menu:** a general volume, and a volume for each of the five prayers and eight alarms,
-  each with Default (the general one). Tested on the PC; the screens are drawn but nobody has looked
-  at them, and nothing plays yet, so no level has been heard through the lamp's own code.
-
+- **Sounds and volumes, chosen and played:** the top menu's **Sound** row sets the general volume,
+  the default adhan (1 to 21) and the default alarm sound; each prayer has a screen with Rings,
+  Sound and Volume, and each alarm has Sound and Volume rows, every one with Default. Picking a sound
+  or a level plays it as you step (command 0x12 by file number), and a due prayer plays its adhan once
+  and an alarm repeats its sound, both climbing from volume 1 over the fade. Written and tested on the
+  PC (248 tests, the reply parser against the frames the board really sent) and the firmware builds,
+  but not flashed: nobody has seen the screens or heard the lamp play a sound by itself. The player
+  stays powered from 5V all the time here, so nothing yet measures the idle draw or the rail switch.
 - Skipping the first-boot setup with Back or a touch, which writes the settings as they stand with
   the place marked as decided so the lamp does not ask again: written, nobody has said it was
   tried.

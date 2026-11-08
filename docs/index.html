@@ -47,15 +47,17 @@
   GPIO5, and the MP3 card on GPIO20/21 playing the adhan from its own card. The alarm that already takes
   the panel gets its sound and its light from the same call.</p>
   <p><b>Every prayer and every alarm picks its own sound, by ear.</b> The player never reports file
-  names, only how many tracks the card holds (query <code>0x48</code>), so a sound is a track number,
-  and the menu offers it as "Sound 3 of 7". Each of the five prayers gets a Sound row on the Prayers
-  screen, and each of the eight alarms gets one in the alarm editor, in place of the fixed tone list.
-  Up and Down step through the tracks and play a few seconds of each at that event's volume. Leaving
-  the row stops the preview and switches the rail back off. The settings block keeps one track per
-  prayer (carved out of <code>reserved</code>) and one per alarm (its existing sound byte, which
-  becomes a track number). A block with no choice stored keeps today's mapping: prayer <i>n</i> plays
-  track <i>n</i>. A track past the card's count falls back to that default instead of playing
-  nothing.</p>
+  names, only how many files the card holds (query <code>0x48</code>, measured on the board), so a
+  sound is a number and the menu offers it as "3 of 21". The card is numbered by what the file is for:
+  the adhan are <code>/mp3/0001.mp3</code> to <code>0099.mp3</code> (the lamp ships 21) and the alarm
+  sounds start at <code>0101.mp3</code>, so the alarm editor never offers an adhan and a prayer never
+  offers an alarm sound; the alarm sounds on the card are its file count minus the 21 adhan. The top
+  menu's Sound row sets the general volume and the default adhan and default alarm sound; each prayer
+  has a screen with Rings, Sound and Volume and each alarm a Sound and a Volume row, and every one of
+  those has Default, which follows the default above it. Stepping through sounds or levels plays them.
+  The settings block keeps one default of each, one sound and one volume per prayer, and one volume
+  per alarm (its existing sound byte is the alarm's own sound). A block with nothing chosen is all
+  Default, so prayer <i>n</i> plays the default adhan.</p>
   <p><b>Gate:</b> at its minute an alarm runs the ramp and plays the sound it carries, and any key or
   touch stops it; a prayer does the same with its own track. Two alarms on one morning ring like two
   alarms, not like one alarm and one special case. Two prayers and two alarms, each given a different
