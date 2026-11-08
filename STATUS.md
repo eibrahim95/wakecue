@@ -36,8 +36,8 @@ Each line has a row in `docs/build-log.html`.
   a touch resets into the normal program.
 - **The setup page:** on that network DNS answers every name with 192.168.4.1, a web server on
   port 80 serves one form for the Wi-Fi name and password, the time zone and the place, and a
-  valid form is written to flash like a menu change. A phone reached the page and the form
-  worked. Saving the Wi-Fi name does not make the lamp join it yet: that is the station half of
+  valid form is written to flash like a menu change. An Android phone offered to sign in by
+  itself and the form worked; the saved zone was still there afterwards. Saving the Wi-Fi name does not make the lamp join it yet: that is the station half of
   move 1.
 - **Wi-Fi:** joins the house router as a station (scratch project), DHCP,
   DNS, NTP. The lamp's setup page is move 1, not built.
