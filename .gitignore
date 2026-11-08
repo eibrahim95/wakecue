@@ -15,3 +15,6 @@ firmware_ws/wakecue/settings-sector.bin
 
 # Vendor datasheets: large PDFs, re-downloadable (see docs/datasheets/*/README.md)
 docs/datasheets/
+
+# Audio for the lamp's microSD card: large, re-downloadable (see audio/README.md)
+audio/
