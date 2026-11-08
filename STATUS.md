@@ -44,16 +44,18 @@ Each line has a row in `docs/build-log.html`.
   `time.google.com` for the time, writes the clock, clears the power-loss flag, records
   `setup.wifi` and `setup.clock`, and resets into a clean boot. It synced. Any failure inside
   30 s falls back to waking once a minute.
+- **The sync message:** while the clock is fetched the panel says "Syncing time..." with the
+  network's name under it.
+- **The first boot:** a lamp with nothing stored raises the setup network by itself
+  (`Wakecue-XXXX`), without going through the menu.
 - **Wi-Fi:** joins the house router as a station (scratch project), DHCP,
   DNS, NTP. The lamp's own network, setup page and clock sync are in the entries above.
 
 ## Written but not yet seen
 
-- The "Syncing time..." message on the panel (with the network's name under it) while the clock
-  is fetched: written, nobody has said it was seen.
-- The first-boot setup: with nothing stored the lamp raises `Wakecue-XXXX` by itself. Back or a
-  touch skips it by writing the settings as they stand, with the place marked as decided, so it
-  does not ask again. To try it, wipe the settings block (`espflash erase-region 0x9000 0x2000`).
+- Skipping the first-boot setup with Back or a touch, which writes the settings as they stand with
+  the place marked as decided so the lamp does not ask again: written, nobody has said it was
+  tried.
 - The five prayer times computed on the boot from the stored place
   (`core::astro`): checked on the PC against all 18,260 times of the old Cairo
   table; not yet compared on the glass.
