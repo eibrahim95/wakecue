@@ -17,9 +17,9 @@ use lamp_core::calendar::{
     COUNTDOWN_LEN, DATE_LEN, HHMM12_LEN, OFFSET_LEN, Zone, format_countdown, format_date,
     format_hhmm12, format_offset, meridiem,
 };
-use lamp_core::menu::{Field, Menu, OF_LEN, Screen, VOLUME_LEN, day_name, format_of, format_volume, offset_parts};
+use lamp_core::menu::{Field, Menu, OF_LEN, Screen, VOLUME_LEN, day_name, format_choice, format_of, format_volume, offset_parts};
 use lamp_core::schedule::Prayer;
-use lamp_core::settings::{ADHAN_COUNT, MAX_USER_ALARMS, MAX_VOLUME};
+use lamp_core::settings::{MAX_SOUND, MAX_USER_ALARMS, MAX_VOLUME};
 use weact_studio_epd::graphics::{Display213BlackWhite, DisplayRotation};
 use weact_studio_epd::{Color, WeActStudio213BlackWhiteDriver};
 
@@ -403,7 +403,7 @@ impl Face {
                 let mut v_buf = [0u8; VOLUME_LEN];
                 let rows = [
                     ("Rings", if on { "on" } else { "off" }),
-                    ("Sound", format_volume(sound, menu.settings.default_adhan, &mut s_buf)),
+                    ("Sound", format_choice(sound, menu.settings.default_adhan, &mut s_buf)),
                     ("Volume", format_volume(volume, menu.settings.volume, &mut v_buf)),
                     ("Save", ""),
                 ];
@@ -423,11 +423,8 @@ impl Face {
                 let mut b_buf = [0u8; OF_LEN];
                 let rows = [
                     ("Volume", format_of(level, MAX_VOLUME, &mut l_buf)),
-                    ("Default adhan", format_of(adhan, ADHAN_COUNT, &mut a_buf)),
-                    (
-                        "Default alarm",
-                        format_of(alarm, menu.alarm_sounds.max(1), &mut b_buf),
-                    ),
+                    ("Default adhan", format_of(adhan, MAX_SOUND, &mut a_buf)),
+                    ("Default alarm", format_of(alarm, MAX_SOUND, &mut b_buf)),
                     ("Save", ""),
                 ];
                 for (i, (label, value)) in rows.into_iter().enumerate() {
@@ -537,7 +534,7 @@ impl Face {
                     ("Hour", two(h12 as u32, &mut hour)),
                     ("Minute", two((draft.minute % 60) as u32, &mut minute)),
                     ("Days", day_name(draft.days)),
-                    ("Sound", format_volume(draft.sound, menu.settings.default_alarm, &mut s_buf)),
+                    ("Sound", format_choice(draft.sound, menu.settings.default_alarm, &mut s_buf)),
                     ("Volume", format_volume(draft.volume, menu.settings.volume, &mut v_buf)),
                     ("Save", ""),
                     ("Delete", ""),

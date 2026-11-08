@@ -28,7 +28,7 @@ use lamp_core::ds3231;
 use lamp_core::menu::{Menu, Screen};
 use lamp_core::schedule::{self, Action, Prayer, PrayerTimes, Rule, When};
 use lamp_core::settings::{
-    ADHAN_COUNT, MAX_RULES, READ_LEN, SECTOR_A, SECTOR_B, SECTOR_LEN, STORED_LEN, Sector, Settings, Stored,
+    MAX_RULES, READ_LEN, SECTOR_A, SECTOR_B, SECTOR_LEN, STORED_LEN, Sector, Settings, Stored,
 };
 use wakecue::clock;
 use wakecue::display::{Face, NextUp, PanelBus, Standby};
@@ -359,17 +359,6 @@ fn main() -> ! {
             .expect("release expander pins");
         let mut reader = KeyReader::default();
         let mut menu = Menu::new(settings);
-        // The player is the only one who knows how many alarm sounds the card holds: its file
-        // count minus the adhan. No answer leaves the one the lamp assumes, so the picker is never
-        // empty.
-        match player.file_count() {
-            Some(files) => {
-                let alarms = files.saturating_sub(ADHAN_COUNT as u16);
-                menu.alarm_sounds = alarms.clamp(1, 99) as u8;
-                info!("card: {} files, so {} alarm sounds", files, menu.alarm_sounds);
-            }
-            None => info!("card: the player did not answer, assuming one alarm sound"),
-        }
         let mut previewing = false;
         let mut port = [0u8; 1];
         let mut last_port = buttons::RELEASE_ALL;

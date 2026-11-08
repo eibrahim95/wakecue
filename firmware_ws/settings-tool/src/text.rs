@@ -30,16 +30,16 @@ const HEADER: &str = "\
 #   volume        the general volume, 0 to 30 on the player's own scale
 #   volume_X      one prayer's own volume (volume_fajr ...): default, or 1 to 30
 #   fade          seconds the adhan takes to reach its volume
-#   adhan         the adhan every prayer plays unless it has its own: 1 to 99 (0001.mp3 and up)
-#   alarm_sound   the sound every alarm plays unless it has its own: 1 to 99 (0101.mp3 and up)
-#   sound_X       one prayer's own adhan (sound_fajr ...): default, or 1 to 99
+#   adhan         the adhan every prayer plays unless it has its own: 1 to 100 (0001.mp3 and up)
+#   alarm_sound   the sound every alarm plays unless it has its own: 1 to 100 (0101.mp3 and up)
+#   sound_X       one prayer's own adhan (sound_fajr ...): default, or 1 to 100
 #   brightness    percent at full, and night percent
 #   clock         12 or 24
 #   lamp          on | off
 #   snooze        off, or a time like 06:30
 #   alarmN        empty, or `06:30 * on default default` (time, days, on/off, sound, volume)
 #                 days: * | sun-thu | fri-sat | fri | sun,mon,...
-#                 sound: default (the default alarm sound) or 1 to 99; left out means default
+#                 sound: default (the default alarm sound) or 1 to 100; left out means default
 #                 volume: default (the general volume) or 1 to 30; left out means default
 #   setup         wifi, place, clock: which first-boot questions are answered
 \n";
@@ -222,7 +222,7 @@ fn own_volume(l: &Line, word: &str) -> Result<u8, String> {
     }
 }
 
-/// A sound of its own: `default` (stored as 0, so the default one plays) or 1 to 99.
+/// A sound of its own: `default` (stored as 0, so the default one plays) or 1 to 100.
 fn own_sound(l: &Line, word: &str) -> Result<u8, String> {
     if word.eq_ignore_ascii_case("default") {
         return Ok(0);
@@ -230,11 +230,11 @@ fn own_sound(l: &Line, word: &str) -> Result<u8, String> {
     sound_number(l, word)
 }
 
-/// A sound number, 1 to 99: the number in the card's file name (adhan 0001 up, alarm sounds 0101 up).
+/// A sound number, 1 to 100: the number in the card's file name (adhan 0001 to 0100, alarm sounds 0101 to 0200).
 fn sound_number(l: &Line, word: &str) -> Result<u8, String> {
     match word.parse::<u8>() {
         Ok(v) if (1..=MAX_SOUND).contains(&v) => Ok(v),
-        _ => Err(at(l, "a sound from 1 to 99 (or `default` where a default is allowed)")),
+        _ => Err(at(l, "a sound from 1 to 100 (or `default` where a default is allowed)")),
     }
 }
 
@@ -576,7 +576,7 @@ mod tests {
         assert_eq!(s.alarms[2].volume, 0); // left out means default
         assert_eq!(s.alarms[2].sound, 2);
         assert_eq!(s.alarms[1].sound, 0);
-        for bad in ["volume = 31\n", "volume_fajr = 0\n", "volume_fajr = loud\n", "alarm1 = 07:00 * on default 31\n", "alarm1 = 07:00 * on 100 default\n", "alarm1 = 07:00 * on chime\n"] {
+        for bad in ["volume = 31\n", "volume_fajr = 0\n", "volume_fajr = loud\n", "alarm1 = 07:00 * on default 31\n", "alarm1 = 07:00 * on 101 default\n", "alarm1 = 07:00 * on chime\n"] {
             let e = apply(&mut Settings::default(), &parse(bad).unwrap()).unwrap_err();
             assert!(e.contains("volume") || e.contains("sound") || e.contains("at most") || e.contains("30"), "{bad}: {e}");
         }
@@ -598,7 +598,7 @@ mod tests {
         assert!(text.contains("alarm1 = 06:00 * on 3 18"), "{text}");
         assert_eq!(patched(&Settings::default(), &text), s);
         // A default is a number, never `default`, and 0 is not a sound.
-        for bad in ["adhan = default\n", "adhan = 0\n", "alarm_sound = 100\n", "sound_fajr = 0\n"] {
+        for bad in ["adhan = default\n", "adhan = 0\n", "alarm_sound = 101\n", "sound_fajr = 0\n"] {
             assert!(apply(&mut Settings::default(), &parse(bad).unwrap()).is_err(), "{bad}");
         }
     }

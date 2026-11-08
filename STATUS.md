@@ -68,7 +68,7 @@ Each line has a row in `docs/build-log.html`.
 ## Written but not yet seen
 
 - **Sounds and volumes, chosen and played:** the top menu's **Sound** row sets the general volume,
-  the default adhan (1 to 21) and the default alarm sound; each prayer has a screen with Rings,
+  the default adhan and the default alarm sound (each 1 to 100); each prayer has a screen with Rings,
   Sound and Volume, and each alarm has Sound and Volume rows, every one with Default. Picking a sound
   or a level plays it as you step (command 0x12 by file number), and a due prayer plays its adhan once
   and an alarm repeats its sound, both climbing from volume 1 over the fade. Written and tested on the

@@ -46,18 +46,19 @@
   <p>The ring on GPIO10 through RMT with the ramp from <code>core::ramp</code>, the AO3400 rail switch on
   GPIO5, and the MP3 card on GPIO20/21 playing the adhan from its own card. The alarm that already takes
   the panel gets its sound and its light from the same call.</p>
-  <p><b>Every prayer and every alarm picks its own sound, by ear.</b> The player never reports file
-  names, only how many files the card holds (query <code>0x48</code>, measured on the board), so a
-  sound is a number and the menu offers it as "3 of 21". The card is numbered by what the file is for:
-  the adhan are <code>/mp3/0001.mp3</code> to <code>0099.mp3</code> (the lamp ships 21) and the alarm
-  sounds start at <code>0101.mp3</code>, so the alarm editor never offers an adhan and a prayer never
-  offers an alarm sound; the alarm sounds on the card are its file count minus the 21 adhan. The top
-  menu's Sound row sets the general volume and the default adhan and default alarm sound; each prayer
-  has a screen with Rings, Sound and Volume and each alarm a Sound and a Volume row, and every one of
-  those has Default, which follows the default above it. Stepping through sounds or levels plays them.
-  The settings block keeps one default of each, one sound and one volume per prayer, and one volume
-  per alarm (its existing sound byte is the alarm's own sound). A block with nothing chosen is all
-  Default, so prayer <i>n</i> plays the default adhan.</p>
+  <p><b>Every prayer and every alarm picks its own sound, by ear.</b> A sound is a number, offered as
+  "3 of 100". The card is numbered by what the file is for: the adhan are <code>/mp3/0001.mp3</code> to
+  <code>0100.mp3</code> and the alarm sounds <code>0101.mp3</code> to <code>0200.mp3</code>, so the alarm
+  editor never offers an adhan and a prayer never offers an alarm sound. The lamp never counts files:
+  every number is offered, and each slot nobody has filled holds a placeholder recording, a robot voice
+  saying which slot it is and to replace the file with one named with that number, so choosing an empty
+  slot is never silence. Adding a sound is copying a file onto the card under the next free number, with
+  no change to the lamp. The top menu's Sound row sets the general volume and the default adhan and
+  default alarm sound; each prayer has a screen with Rings, Sound and Volume and each alarm a Sound and a
+  Volume row, and every one of those has Default, which follows the default above it. Stepping through
+  sounds or levels plays them. The settings block keeps one default of each, one sound and one volume per
+  prayer, and one volume per alarm (its existing sound byte is the alarm's own sound). A block with
+  nothing chosen is all Default, so prayer <i>n</i> plays the default adhan.</p>
   <p><b>Gate:</b> at its minute an alarm runs the ramp and plays the sound it carries, and any key or
   touch stops it; a prayer does the same with its own track. Two alarms on one morning ring like two
   alarms, not like one alarm and one special case. Two prayers and two alarms, each given a different

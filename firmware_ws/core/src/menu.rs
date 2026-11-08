@@ -2,7 +2,7 @@
 use crate::buttons::Key;
 use crate::schedule::Prayer;
 use crate::settings::{
-    ADHAN_COUNT, Dst, MAX_SOUND, MAX_USER_ALARMS, MAX_VOLUME, FRIDAY, FRI_SAT, SUN_TO_THU, Settings,
+    Dst, MAX_SOUND, MAX_USER_ALARMS, MAX_VOLUME, FRIDAY, FRI_SAT, SUN_TO_THU, Settings,
     UserAlarm, adhan_file_of, alarm_file_of,
 };
 use crate::schedule::ALL_DAYS;
@@ -92,56 +92,56 @@ fn step_default_sound(v: u8, up: bool, max: u8) -> u8 {
     (v - 1 + if up { 1 } else { max - 1 }) % max + 1
 }
 
-pub const VOLUME_LEN: usize = 12;
+pub const VOLUME_LEN: usize = 14;
 
-/// A volume or a sound as the screens show it: the number, or "Default (22)" for something that
-/// follows the default, so the owner can see what Default is without leaving the row.
-pub fn format_volume(own: u8, general: u8, buf: &mut [u8; VOLUME_LEN]) -> &str {
-    fn digits(v: u8, buf: &mut [u8], at: usize) -> usize {
-        if v >= 10 {
-            buf[at] = b'0' + v / 10;
-            buf[at + 1] = b'0' + v % 10;
-            at + 2
-        } else {
-            buf[at] = b'0' + v;
-            at + 1
-        }
+/// Writes `v` (0 to 255) as digits at `at` and returns where the next character goes.
+fn put_number(v: u8, buf: &mut [u8], at: usize) -> usize {
+    let mut at = at;
+    if v >= 100 {
+        buf[at] = b'0' + v / 100;
+        at += 1;
     }
+    if v >= 10 {
+        buf[at] = b'0' + v / 10 % 10;
+        at += 1;
+    }
+    buf[at] = b'0' + v % 10;
+    at + 1
+}
+
+/// A sound or a volume as the screens show it: the number, or "Default (22)" for something that
+/// follows the default, so the owner can see what Default is without leaving the row.
+pub fn format_choice(own: u8, default: u8, buf: &mut [u8; VOLUME_LEN]) -> &str {
     let mut n = 0;
     if own == 0 {
         for &c in b"Default (" {
             buf[n] = c;
             n += 1;
         }
-        n = digits(general.min(MAX_VOLUME), buf, n);
+        n = put_number(default, buf, n);
         buf[n] = b')';
         n += 1;
     } else {
-        n = digits(own.min(MAX_VOLUME), buf, 0);
+        n = put_number(own, buf, 0);
     }
     core::str::from_utf8(&buf[..n]).unwrap_or("")
 }
 
-pub const OF_LEN: usize = 8;
+/// The same for a volume, which never reads above the player's top level.
+pub fn format_volume(own: u8, general: u8, buf: &mut [u8; VOLUME_LEN]) -> &str {
+    format_choice(own.min(MAX_VOLUME), general.min(MAX_VOLUME), buf)
+}
+
+pub const OF_LEN: usize = 10;
 
 /// "3 of 21": which one, out of how many.
 pub fn format_of(n: u8, total: u8, buf: &mut [u8; OF_LEN]) -> &str {
-    fn digits(v: u8, buf: &mut [u8], at: usize) -> usize {
-        if v >= 10 {
-            buf[at] = b'0' + v / 10;
-            buf[at + 1] = b'0' + v % 10;
-            at + 2
-        } else {
-            buf[at] = b'0' + v;
-            at + 1
-        }
-    }
-    let mut i = digits(n.min(99), buf, 0);
+    let mut i = put_number(n, buf, 0);
     for &c in b" of " {
         buf[i] = c;
         i += 1;
     }
-    i = digits(total.min(99), buf, i);
+    i = put_number(total, buf, i);
     core::str::from_utf8(&buf[..i]).unwrap_or("")
 }
 
@@ -221,8 +221,6 @@ pub struct Outcome {
 pub struct Menu {
     pub screen: Screen,
     pub settings: Settings,
-    /// How many alarm sounds the card holds, which only the player can say. The picker stops there.
-    pub alarm_sounds: u8,
 }
 
 fn step(cursor: u8, len: u8, key: Key) -> u8 {
@@ -235,12 +233,7 @@ fn step(cursor: u8, len: u8, key: Key) -> u8 {
 
 impl Menu {
     pub fn new(settings: Settings) -> Menu {
-        Menu { screen: Screen::Home, settings, alarm_sounds: 1 }
-    }
-
-    /// The most an alarm's sound can be: what the card holds, at least one, at most the numbering.
-    fn alarm_max(&self) -> u8 {
-        self.alarm_sounds.clamp(1, MAX_SOUND)
+        Menu { screen: Screen::Home, settings }
     }
 
     pub fn press(&mut self, key: Key) -> Outcome {
@@ -260,8 +253,8 @@ impl Menu {
                     2 => Screen::Sound {
                         field: 0,
                         level: self.settings.volume.clamp(1, MAX_VOLUME),
-                        adhan: self.settings.default_adhan.clamp(1, ADHAN_COUNT),
-                        alarm: self.settings.default_alarm.clamp(1, self.alarm_max()),
+                        adhan: self.settings.default_adhan.clamp(1, MAX_SOUND),
+                        alarm: self.settings.default_alarm.clamp(1, MAX_SOUND),
                     },
                     4 => {
                         out.setup = true;
@@ -280,7 +273,7 @@ impl Menu {
                     prayer: cursor,
                     field: 0,
                     on: self.settings.prayer_on(Prayer::ALL[cursor as usize]),
-                    sound: self.settings.prayer_sound[cursor as usize].min(ADHAN_COUNT),
+                    sound: self.settings.prayer_sound[cursor as usize].min(MAX_SOUND),
                     volume: self.settings.prayer_volume[cursor as usize],
                 },
                 Key::Back => Screen::Top { cursor: 0 },
@@ -297,12 +290,12 @@ impl Menu {
                             Screen::Sound { field, level, adhan, alarm }
                         }
                         SoundField::Adhan => {
-                            let adhan = step_default_sound(adhan, up, ADHAN_COUNT);
+                            let adhan = step_default_sound(adhan, up, MAX_SOUND);
                             out.preview = Some(Preview { file: adhan_file_of(adhan), volume: level });
                             Screen::Sound { field, level, adhan, alarm }
                         }
                         SoundField::Alarm => {
-                            let alarm = step_default_sound(alarm, up, self.alarm_max());
+                            let alarm = step_default_sound(alarm, up, MAX_SOUND);
                             out.preview = Some(Preview { file: alarm_file_of(alarm), volume: level });
                             Screen::Sound { field, level, adhan, alarm }
                         }
@@ -334,7 +327,7 @@ impl Menu {
                     match PRAYER_FIELDS[field as usize] {
                         PrayerField::On => Screen::PrayerEdit { prayer, field, on: !on, sound, volume },
                         PrayerField::Sound => {
-                            let sound = step_own_sound(sound, up, ADHAN_COUNT);
+                            let sound = step_own_sound(sound, up, MAX_SOUND);
                             out.preview = Some(Preview {
                                 file: self.settings.adhan_file(sound),
                                 volume: self.settings.volume_for(volume),
@@ -439,7 +432,7 @@ impl Menu {
                             draft.days = DAY_PRESETS[(i + if up { 1 } else { n - 1 }) % n];
                         }
                         Field::Sound => {
-                            draft.sound = step_own_sound(draft.sound, up, self.alarm_max());
+                            draft.sound = step_own_sound(draft.sound, up, MAX_SOUND);
                             out.preview = Some(Preview {
                                 file: self.settings.alarm_file(draft.sound),
                                 volume: self.settings.volume_for(draft.volume),
@@ -591,7 +584,6 @@ mod tests {
     #[test]
     fn the_sound_screen_starts_from_what_is_stored() {
         let mut m = menu();
-        m.alarm_sounds = 5;
         m.settings.default_adhan = 7;
         m.settings.default_alarm = 3;
         open_sound(&mut m);
@@ -625,30 +617,35 @@ mod tests {
     #[test]
     fn the_default_sounds_walk_their_own_lists_round_and_round_and_are_written_on_save() {
         let mut m = menu();
-        m.alarm_sounds = 3;
         open_sound(&mut m);
         m.press(Key::Ok); // Volume -> Default adhan
-        m.press(Key::Down); // 1 wraps to the last adhan
-        assert!(matches!(m.screen, Screen::Sound { adhan: 21, .. }));
+        m.press(Key::Down); // 1 wraps to the last adhan, number 100
+        assert!(matches!(m.screen, Screen::Sound { adhan: 100, .. }));
         m.press(Key::Up); // and the last wraps to 1
         m.press(Key::Up);
         m.press(Key::Up);
         assert!(matches!(m.screen, Screen::Sound { adhan: 3, .. }));
         m.press(Key::Ok); // -> Default alarm sound
         for _ in 0..4 {
-            m.press(Key::Up); // 1 2 3 1 2: three on the card, so it wraps at three
+            m.press(Key::Up); // 1 -> 5
         }
-        assert!(matches!(m.screen, Screen::Sound { alarm: 2, .. }));
+        assert!(matches!(m.screen, Screen::Sound { alarm: 5, .. }));
+        for _ in 0..96 {
+            m.press(Key::Up); // 5 -> 100, and one more wraps to 1
+        }
+        assert!(matches!(m.screen, Screen::Sound { alarm: 1, .. }));
+        for _ in 0..4 {
+            m.press(Key::Up);
+        }
         assert_eq!((m.settings.default_adhan, m.settings.default_alarm), (1, 1)); // nothing written yet
         m.press(Key::Ok); // -> Save
         assert!(m.press(Key::Ok).save);
-        assert_eq!((m.settings.default_adhan, m.settings.default_alarm), (3, 2));
+        assert_eq!((m.settings.default_adhan, m.settings.default_alarm), (3, 5));
     }
 
     #[test]
     fn stepping_a_sound_asks_for_it_to_be_played_and_leaving_the_row_stops_it() {
         let mut m = menu();
-        m.alarm_sounds = 4;
         open_sound(&mut m);
         m.press(Key::Ok); // Default adhan
         let o = m.press(Key::Up); // adhan 2
@@ -707,7 +704,7 @@ mod tests {
         let o = m.press(Key::Down); // back to Default, which is adhan 4 here
         assert_eq!(o.preview, Some(Preview { file: 4, volume: 22 }));
         m.press(Key::Down); // Default wraps to the last adhan
-        assert!(matches!(m.screen, Screen::PrayerEdit { sound: 21, .. }));
+        assert!(matches!(m.screen, Screen::PrayerEdit { sound: 100, .. }));
         m.press(Key::Up); // and back to Default
         m.press(Key::Up);
         m.press(Key::Up); // adhan 2
@@ -733,9 +730,8 @@ mod tests {
     }
 
     #[test]
-    fn an_alarms_sound_stops_at_what_the_card_holds_and_previews_from_0101() {
+    fn an_alarms_sound_walks_all_hundred_and_previews_from_0101() {
         let mut m = menu();
-        m.alarm_sounds = 2;
         open_new_alarm(&mut m);
         for _ in 0..3 {
             m.press(Key::Ok); // Hour -> Minute -> Days -> Sound
@@ -743,9 +739,11 @@ mod tests {
         assert!(matches!(m.screen, Screen::Edit { field: 3, .. }));
         let o = m.press(Key::Up); // Default -> alarm sound 1
         assert_eq!(o.preview, Some(Preview { file: 101, volume: 22 }));
-        let o = m.press(Key::Up);
-        assert_eq!(o.preview, Some(Preview { file: 102, volume: 22 }));
-        m.press(Key::Up); // two on the card, so this wraps to Default
+        let o = m.press(Key::Down); // back to Default, which is sound 1 here
+        assert_eq!(o.preview, Some(Preview { file: 101, volume: 22 }));
+        let o = m.press(Key::Down); // Default wraps to the last: the hundredth, file 0200
+        assert_eq!(o.preview, Some(Preview { file: 200, volume: 22 }));
+        m.press(Key::Up); // and the last wraps to Default
         assert!(matches!(m.screen, Screen::Edit { draft: UserAlarm { sound: 0, .. }, .. }));
         m.press(Key::Up);
         m.press(Key::Ok); // to Volume
@@ -755,16 +753,12 @@ mod tests {
     }
 
     #[test]
-    fn with_nothing_but_the_test_beep_on_the_card_the_picker_offers_it_and_default() {
-        let mut m = menu(); // alarm_sounds is 1 until the player says otherwise
-        open_new_alarm(&mut m);
-        for _ in 0..3 {
-            m.press(Key::Ok);
-        }
-        m.press(Key::Up);
-        assert!(matches!(m.screen, Screen::Edit { draft: UserAlarm { sound: 1, .. }, .. }));
-        m.press(Key::Up);
-        assert!(matches!(m.screen, Screen::Edit { draft: UserAlarm { sound: 0, .. }, .. }));
+    fn a_sound_reads_as_its_number_up_to_a_hundred_and_default_says_what_it_means() {
+        let mut buf = [0u8; VOLUME_LEN];
+        assert_eq!(format_choice(100, 1, &mut buf), "100");
+        assert_eq!(format_choice(7, 1, &mut buf), "7");
+        assert_eq!(format_choice(0, 100, &mut buf), "Default (100)");
+        assert_eq!(format_choice(0, 12, &mut buf), "Default (12)");
     }
 
     #[test]
@@ -773,6 +767,7 @@ mod tests {
         assert_eq!(format_of(3, 21, &mut buf), "3 of 21");
         assert_eq!(format_of(12, 21, &mut buf), "12 of 21");
         assert_eq!(format_of(1, 1, &mut buf), "1 of 1");
+        assert_eq!(format_of(100, 100, &mut buf), "100 of 100");
     }
 
     #[test]

@@ -49,9 +49,9 @@
 //!   196     1  calculation method id
 //!   197     5  volume of each prayer, 0 = use the general volume, 1 to 30 its own
 //!   202     8  volume of each alarm, same meaning
-//!   210     1  default adhan, 1 to 99 (0 reads as 1)
-//!   211     1  default alarm sound, 1 to 99 (0 reads as 1)
-//!   212     5  sound of each prayer, 0 = the default adhan, 1 to 99 its own
+//!   210     1  default adhan, 1 to 100 (0 reads as 1)
+//!   211     1  default alarm sound, 1 to 100 (0 reads as 1)
+//!   212     5  sound of each prayer, 0 = the default adhan, 1 to 100 its own
 //!   217     3  reserved, zero
 //! ```
 use crate::calendar::{Zone, weekday};
@@ -91,11 +91,12 @@ pub const FRIDAY: u8 = 0b0010_0000;
 /// The player's volume runs 0 to 30.
 pub const MAX_VOLUME: u8 = 30;
 
-/// How the card is numbered. Adhan are `/mp3/0001.mp3` to `/mp3/0099.mp3` and the lamp ships with
-/// [`ADHAN_COUNT`] of them; alarm sounds start at `/mp3/0101.mp3`. The player reports only how many
-/// files the card holds, so the number of alarm sounds is that count minus the adhan.
-pub const ADHAN_COUNT: u8 = 21;
-pub const MAX_SOUND: u8 = 99;
+/// How the card is numbered: adhan are `/mp3/0001.mp3` to `/mp3/0100.mp3` and alarm sounds
+/// `/mp3/0101.mp3` to `/mp3/0200.mp3`, a hundred of each whether the card has them or not. The lamp
+/// never counts files: every number is offered, and a slot nobody has filled holds a placeholder
+/// that says so out loud, so choosing it is never silence. Adding a sound is copying a file onto
+/// the card under the next free number, with no change to the lamp.
+pub const MAX_SOUND: u8 = 100;
 pub const ALARM_FILE_BASE: u16 = 100;
 
 /// The number in the card's file name for adhan number `n` (1 to [`MAX_SOUND`]).
@@ -685,7 +686,7 @@ impl Stored {
         for (i, v) in prayer_volume.iter_mut().enumerate() {
             *v = own_volume(p[po::PRAYER_VOLUME + i]);
         }
-        // A sound of its own is 1 to 99. Zero is "Default", and so is 0xFF; a default is 1 to 99 and
+        // A sound of its own is 1 to 100. Zero is "Default", and so is 0xFF; a default is 1 to 100 and
         // zero or 0xFF there means the first. Clamped the same way, so no value costs the block.
         let own_sound = |v: u8| match v {
             0 | 0xFF => 0,
