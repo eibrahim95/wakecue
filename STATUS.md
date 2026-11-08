@@ -39,18 +39,18 @@ Each line has a row in `docs/build-log.html`.
   valid form is written to flash like a menu change. An Android phone offered to sign in by
   itself and the form worked; the saved zone was still there afterwards. Saving the Wi-Fi name does not make the lamp join it yet: that is the station half of
   move 1.
+- **The clock from the network:** (`wakecue/src/station.rs`, `core::ntp`) on a boot where the
+  DS3231 says it lost power and a Wi-Fi name is stored, the lamp joins that network, asks
+  `time.google.com` for the time, writes the clock, clears the power-loss flag, records
+  `setup.wifi` and `setup.clock`, and resets into a clean boot. It synced. Any failure inside
+  30 s falls back to waking once a minute.
 - **Wi-Fi:** joins the house router as a station (scratch project), DHCP,
-  DNS, NTP. The lamp's setup page is move 1, not built.
+  DNS, NTP. The lamp's own network, setup page and clock sync are in the entries above.
 
 ## Written but not yet seen
 
-- The clock set from the network (`wakecue/src/station.rs`, `core::ntp`): on a boot where the
-  DS3231 says it lost power and a Wi-Fi name is stored, the panel says "Syncing time..." with
-  the network's name under it, and the lamp joins that network, asks
-  `time.google.com` for the time, writes the clock, clears the power-loss flag, records
-  `setup.wifi` and `setup.clock`, and resets into a clean boot. Any failure inside 30 s falls back
-  to waking once a minute. NTP parsing is tested on the PC (4 tests); nothing of it has run on the
-  board.
+- The "Syncing time..." message on the panel (with the network's name under it) while the clock
+  is fetched: written, nobody has said it was seen.
 - The first-boot setup: with nothing stored the lamp raises `Wakecue-XXXX` by itself. Back or a
   touch skips it by writing the settings as they stand, with the place marked as decided, so it
   does not ask again. To try it, wipe the settings block (`espflash erase-region 0x9000 0x2000`).
