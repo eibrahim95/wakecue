@@ -45,7 +45,8 @@ Each line has a row in `docs/build-log.html`.
 ## Written but not yet seen
 
 - The clock set from the network (`wakecue/src/station.rs`, `core::ntp`): on a boot where the
-  DS3231 says it lost power and a Wi-Fi name is stored, the lamp joins that network, asks
+  DS3231 says it lost power and a Wi-Fi name is stored, the panel says "Syncing time..." with
+  the network's name under it, and the lamp joins that network, asks
   `time.google.com` for the time, writes the clock, clears the power-loss flag, records
   `setup.wifi` and `setup.clock`, and resets into a clean boot. Any failure inside 30 s falls back
   to waking once a minute. NTP parsing is tested on the PC (4 tests); nothing of it has run on the

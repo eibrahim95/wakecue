@@ -315,6 +315,24 @@ impl Face {
         self.push();
     }
 
+    /// A short message in the middle of the glass, for the moments the lamp is busy and the clock
+    /// face has nothing true to say: a title in the large font and one line of detail under it.
+    pub fn show_message(&mut self, title: &str, detail: &str) {
+        if !self.ready {
+            return;
+        }
+        self.settle();
+        let frame = &mut self.frame;
+        frame.clear(Color::White);
+        let big = MonoTextStyle::new(&FONT_10X20, Color::Black);
+        let small = MonoTextStyle::new(&FONT_6X10, Color::Black);
+        // The glyphs advance ten and six pixels, so a text centres as its length times that.
+        let _ = Text::new(title, Point::new((250 - title.len() as i32 * 10) / 2, 56), big).draw(frame);
+        let _ = Text::new(detail, Point::new((250 - detail.len() as i32 * 6).max(12) / 2, 84), small)
+            .draw(frame);
+        self.push();
+    }
+
     /// The setup screen: the name of the network the lamp has raised, large enough to read from
     /// the phone's list, and how to leave. Drawn once; the panel then keeps it with no power.
     pub fn show_setup(&mut self, ssid: &str) {

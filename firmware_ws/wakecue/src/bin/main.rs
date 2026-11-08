@@ -170,6 +170,9 @@ fn main() -> ! {
     // The event this boot has to answer for, if one came due: the prayer's sound or a user alarm.
     // The light ramp is not an alarm, and nothing is wired to ring yet.
     let mut alarm: Option<(i64, Action)> = None;
+    // The panel is taken over before the clock sync, which can take half a minute with nothing on
+    // the glass otherwise. It is only drawn on when there is something to say.
+    let mut face = Face::new(PanelBus::new(spi, dc), busy, rst, woken);
     if osf {
         // The clock lost power, so its time cannot be believed. With a network stored, ask it for
         // the time: the finished lamp does this once, after the setup page, and never again unless
@@ -179,6 +182,7 @@ fn main() -> ! {
             info!("osf set: no network stored, the time cannot be fetched");
         } else {
             info!("osf set: joining {} for the time", settings.ssid());
+            face.show_message("Syncing time...", settings.ssid());
             if let Some(unix) = station::sync(radio.get(), settings.ssid(), settings.psk()) {
                 let regs = ds3231::time_registers(unix);
                 let mut frame = [0u8; 8];
@@ -257,7 +261,6 @@ fn main() -> ! {
 
     // The panel is the lamp's face, so it is drawn once the boot knows what it is looking at:
     // a face that woke before the clock was read could only show yesterday's minute.
-    let mut face = Face::new(PanelBus::new(spi, dc), busy, rst, woken);
     // A lamp with nothing stored has never been set up: raise the setup network at once. It can be
     // skipped with Back or a touch, which writes the defaults down so it does not ask again.
     if first_boot {
