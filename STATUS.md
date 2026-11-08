@@ -34,17 +34,16 @@ Each line has a row in `docs/build-log.html`.
 - **The phone setup:** top menu, fourth row. The lamp raises an open network `Wakecue-XXXX` at
   192.168.4.1 and answers DHCP from `core::dhcp`; a phone joined it and was given `.2`. Back or
   a touch resets into the normal program.
+- **The setup page:** on that network DNS answers every name with 192.168.4.1, a web server on
+  port 80 serves one form for the Wi-Fi name and password, the time zone and the place, and a
+  valid form is written to flash like a menu change. A phone reached the page and the form
+  worked. Saving the Wi-Fi name does not make the lamp join it yet: that is the station half of
+  move 1.
 - **Wi-Fi:** joins the house router as a station (scratch project), DHCP,
   DNS, NTP. The lamp's setup page is move 1, not built.
 
 ## Written but not yet seen
 
-- The setup page on the lamp's own network: DNS answers every name with 192.168.4.1 (`core::dns`),
-  a web server on port 80 serves one form (`core::http`, `core::setup_page`, routed by
-  `core::portal`) for the Wi-Fi name and password, the time zone and the place, and a valid form
-  is written to flash like a menu change (`wakecue/src/setup.rs`). Checked on the PC only
-  (176 core tests, including every route and the rule that the saved password is never sent back
-  in a page); no phone has opened it yet, and nobody has seen the portal prompt appear.
 - The five prayer times computed on the boot from the stored place
   (`core::astro`): checked on the PC against all 18,260 times of the old Cairo
   table; not yet compared on the glass.
