@@ -110,8 +110,9 @@ mod po {
     pub const LAMP: usize = 180;
     pub const SNOOZE_FLAGS: usize = 181;
     pub const SNOOZE_MIN: usize = 182;
-    pub const RESERVED: usize = 184;
-    pub const RESERVED_LEN: usize = 16;
+    pub const METHOD: usize = 184;
+    pub const RESERVED: usize = 185;
+    pub const RESERVED_LEN: usize = 15;
 
     const _: () = assert!(RESERVED + RESERVED_LEN == super::PAYLOAD_LEN);
 }
@@ -284,6 +285,10 @@ pub struct Settings {
     pub clock_24h: bool,
     pub lamp_on: bool,
     pub snooze_minute: Option<u16>,
+    /// The calculation method last chosen, as an id of [`crate::methods::PRESETS`], or 0 when none
+    /// was: the fields above hold the numbers, and this says which authority they came from. Several
+    /// authorities share numbers, so without it the page could only guess the name to show.
+    pub method_id: u8,
 }
 
 impl Default for Settings {
@@ -317,6 +322,7 @@ impl Default for Settings {
             clock_24h: false,
             lamp_on: false,
             snooze_minute: None,
+            method_id: 0,
         }
     }
 }
@@ -512,6 +518,7 @@ impl Stored {
         p[po::SNOOZE_FLAGS] = s.snooze_minute.is_some() as u8;
         p[po::SNOOZE_MIN..po::SNOOZE_MIN + 2]
             .copy_from_slice(&s.snooze_minute.unwrap_or(0).to_le_bytes());
+        p[po::METHOD] = s.method_id;
 
         let crc = crc32(p);
         b[8..12].copy_from_slice(&crc.to_le_bytes());
@@ -658,6 +665,7 @@ impl Stored {
                 clock_24h: p[po::FACE] & 1 != 0,
                 lamp_on: p[po::LAMP] & 1 != 0,
                 snooze_minute,
+                method_id: p[po::METHOD],
             },
         })
     }

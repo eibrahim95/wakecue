@@ -23,8 +23,8 @@ use crate::setup_page::{self, FormError};
 pub const HOME: &str = "http://192.168.4.1/";
 
 /// Room for the largest body this module writes into the caller's buffer (the page is held under
-/// 7600 bytes). Larger fixed data is not copied: see [`Reply::extra`].
-pub const BODY_MAX: usize = 8192;
+/// 9600 bytes). Larger fixed data is not copied: see [`Reply::extra`].
+pub const BODY_MAX: usize = 10240;
 /// Room for a reply head.
 pub const HEAD_MAX: usize = 384;
 
@@ -116,6 +116,7 @@ pub fn respond(
                         FormError::Utc | FormError::Dst => "the time zone",
                         FormError::Ssid => "the Wi-Fi name",
                         FormError::Psk => "the Wi-Fi password (8 to 63 characters)",
+                        FormError::Method => "the calculation method",
                         FormError::Malformed => "the form",
                     };
                     let mut text = [0u8; 96];

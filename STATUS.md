@@ -53,6 +53,14 @@ Each line has a row in `docs/build-log.html`.
 
 ## Written but not yet seen
 
+- The calculation method per place (`core::methods`, `core::cities`, `core::setup_page`): the lamp
+  used the Egyptian convention everywhere, so Makkah's Fajr was 5:04 where Google (Umm al-Qura)
+  has 5:09. The setup page now has a Calculation method box with 19 authorities, filled in with a
+  suggestion when a city is picked, and the chosen method's id is kept in the settings block
+  (spare byte 184). Four methods bring their own minute shifts (Turkey, Dubai, Morocco, Jordan).
+  Checked on the PC (217 core tests, and the arithmetic against AlAdhan for every method); not yet
+  tried from a phone. Gaps: Isha 120 min in Ramadan (Umm al-Qura), no high-latitude rule in summer
+  above about 48 degrees north, Iran's method (Maghrib by a sun angle).
 - Choosing the place from a list on the setup page (`core::cities`, `core::setup_page`): a search
   box finds one of 440 built-in places (Egypt in depth, the Muslim world, and big cities
   elsewhere) and fills the name, latitude, longitude, offset and summer-time rule; the raw

@@ -5,12 +5,20 @@
 //! and the summer-time rule. The phone has no internet while it is on the lamp's own network, so
 //! the list lives in the lamp's flash and is sent to the browser as plain text, which filters it.
 //!
-//! [`LIST`] is the one source of truth: one place per line, `Name|Country|lat|lon|utc|dst`, sorted
-//! by name. The code here only reads it back, so the page and the tests see the same data.
+//! [`LIST`] is the one source of truth: one place per line, `Name|Country|lat|lon|utc|dst|method`,
+//! sorted by name. The code here only reads it back, so the page and the tests see the same data.
 //!
 //! - `lat`, `lon`: decimal degrees with exactly two decimals, the block's own resolution.
 //! - `utc`: the standard (winter) offset from UTC in minutes, for example `120` or `345`.
 //! - `dst`: `none`, `egypt`, `europe` or `us`, the only summer-time rules the lamp can follow.
+//! - `method`: the calculation method the place's country follows, as an id of [`crate::methods`]
+//!   (5 is the Egyptian General Authority of Survey, 4 Umm al-Qura, and so on), or `0` for a place
+//!   whose country follows a method the lamp cannot follow yet (Iran's sets Maghrib by a sun angle).
+//!   The page fills it in as a suggestion and the owner can change it. It is set only where a country
+//!   has an authority of its own: Egypt, Saudi Arabia and Yemen (the Arabian Peninsula's Umm al-Qura),
+//!   Turkey, Indonesia, Malaysia, Singapore, Kuwait, Qatar, Jordan, Morocco, Algeria, Tunisia, Russia,
+//!   France, the Gulf states, Pakistan, Bangladesh and India, and the United States, Canada and Mexico
+//!   (ISNA). Every other place gets the Muslim World League, a default and not a claim about it.
 //! - `Name` is at most 15 bytes, because that is all the settings block stores of a place name.
 //!   `Country` may carry a well-known other name in brackets, such as `Saudi Arabia (Mecca)`, so
 //!   a search for either finds the place.
@@ -36,6 +44,8 @@ pub struct City {
     /// Standard offset from UTC in minutes.
     pub utc_min: i16,
     pub dst: Dst,
+    /// An id of [`crate::methods::PRESETS`], or 0 for a method the lamp cannot follow.
+    pub method: u8,
 }
 
 /// A decimal with exactly two decimals (`-0.13`, `30.04`) as hundredths (`-13`, `3004`).
@@ -56,7 +66,7 @@ fn hundredths(s: &str) -> Option<i16> {
 }
 
 impl City {
-    /// Read one `Name|Country|lat|lon|utc|dst` line, or `None` if it is not one.
+    /// Read one `Name|Country|lat|lon|utc|dst|method` line, or `None` if it is not one.
     pub fn parse(line: &'static str) -> Option<City> {
         let mut f = line.split('|');
         let name = f.next().filter(|n| !n.is_empty())?;
@@ -65,10 +75,11 @@ impl City {
         let lon_e2 = hundredths(f.next()?)?;
         let utc_min = f.next()?.parse().ok()?;
         let dst = Dst::from_name(f.next()?)?;
+        let method = f.next()?.parse().ok()?;
         if f.next().is_some() {
             return None;
         }
-        Some(City { name, country, lat_e2, lon_e2, utc_min, dst })
+        Some(City { name, country, lat_e2, lon_e2, utc_min, dst, method })
     }
 }
 
@@ -77,448 +88,448 @@ pub fn cities() -> impl Iterator<Item = City> {
     LIST.lines().filter_map(City::parse)
 }
 
-/// The places, one per line: `Name|Country|lat|lon|utc|dst`, sorted by name.
+/// The places, one per line: `Name|Country|lat|lon|utc|dst|method`, sorted by name.
 pub static LIST: &str = "\
-10th of Ramadan|Egypt|30.29|31.75|120|egypt\n\
-6th of October|Egypt|29.96|30.92|120|egypt\n\
-Abbottabad|Pakistan|34.15|73.21|300|none\n\
-Abha|Saudi Arabia|18.22|42.51|180|none\n\
-Abidjan|Ivory Coast|5.36|-4.01|0|none\n\
-Abu Dhabi|United Arab Emirates|24.45|54.38|240|none\n\
-Abuja|Nigeria|9.08|7.40|60|none\n\
-Accra|Ghana|5.60|-0.19|0|none\n\
-Adana|Turkey|37.00|35.32|180|none\n\
-Addis Ababa|Ethiopia|9.03|38.74|180|none\n\
-Aden|Yemen|12.78|45.04|180|none\n\
-Aga|Egypt|30.95|31.29|120|egypt\n\
-Agadir|Morocco|30.43|-9.60|60|none\n\
-Ahmedabad|India|23.02|72.57|330|none\n\
-Ahvaz|Iran|31.32|48.67|210|none\n\
-Aktau|Kazakhstan|43.65|51.15|300|none\n\
-Al Ain|United Arab Emirates|24.21|55.76|240|none\n\
-Al Khobar|Saudi Arabia|26.28|50.21|180|none\n\
-Aleppo|Syria|36.20|37.16|180|none\n\
-Alexandria|Egypt|31.20|29.92|120|egypt\n\
-Algiers|Algeria|36.75|3.06|60|none\n\
-Almaty|Kazakhstan|43.24|76.89|300|none\n\
-Ambon|Indonesia|-3.70|128.18|540|none\n\
-Amman|Jordan|31.95|35.93|180|none\n\
-Amritsar|India|31.63|74.87|330|none\n\
-Amsterdam|Netherlands|52.37|4.90|60|europe\n\
-Anchorage|United States|61.22|-149.90|-540|us\n\
-Ankara|Turkey|39.93|32.86|180|none\n\
-Antalya|Turkey|36.90|30.70|180|none\n\
-Antananarivo|Madagascar|-18.88|47.51|180|none\n\
-Antwerp|Belgium|51.22|4.40|60|europe\n\
-Aqaba|Jordan|29.53|35.01|180|none\n\
-Ashgabat|Turkmenistan|37.96|58.33|300|none\n\
-Asmara|Eritrea|15.34|38.93|180|none\n\
-Astana|Kazakhstan|51.17|71.45|300|none\n\
-Aswan|Egypt|24.09|32.90|120|egypt\n\
-Asyut|Egypt|27.18|31.18|120|egypt\n\
-Athens|Greece|37.98|23.73|120|europe\n\
-Atlanta|United States|33.75|-84.39|-300|us\n\
-Baghdad|Iraq|33.31|44.37|180|none\n\
-Baku|Azerbaijan|40.41|49.87|240|none\n\
-Balikpapan|Indonesia|-1.24|116.83|480|none\n\
-Bamako|Mali|12.64|-8.00|0|none\n\
-Banda Aceh|Indonesia|5.55|95.32|420|none\n\
-Bandar Abbas|Iran|27.18|56.27|210|none\n\
-Bandar Brunei|Brunei|4.89|114.94|480|none\n\
-Bandar Lampung|Indonesia|-5.43|105.26|420|none\n\
-Bandung|Indonesia|-6.92|107.61|420|none\n\
-Bangkok|Thailand|13.76|100.50|420|none\n\
-Banjarmasin|Indonesia|-3.32|114.59|480|none\n\
-Banjul|Gambia|13.45|-16.58|0|none\n\
-Barcelona|Spain|41.39|2.17|60|europe\n\
-Barisal|Bangladesh|22.70|90.37|360|none\n\
-Basra|Iraq|30.51|47.78|180|none\n\
-Beijing|China|39.90|116.41|480|none\n\
-Belbeis|Egypt|30.42|31.56|120|egypt\n\
-Belfast|United Kingdom|54.60|-5.93|0|europe\n\
-Belgrade|Serbia|44.79|20.45|60|europe\n\
-Bengaluru|India (Bangalore)|12.97|77.59|330|none\n\
-Benghazi|Libya|32.12|20.07|120|none\n\
-Benha|Egypt|30.46|31.18|120|egypt\n\
-Beni Suef|Egypt|29.07|31.10|120|egypt\n\
-Berlin|Germany|52.52|13.40|60|europe\n\
-Bern|Switzerland|46.95|7.45|60|europe\n\
-Bhopal|India|23.26|77.41|330|none\n\
-Bhubaneswar|India|20.30|85.82|330|none\n\
-Bilqas|Egypt|31.23|31.37|120|egypt\n\
-Birmingham|United Kingdom|52.49|-1.89|0|europe\n\
-Bishkek|Kyrgyzstan|42.87|74.59|360|none\n\
-Bogota|Colombia|4.71|-74.07|-300|none\n\
-Boston|United States|42.36|-71.06|-300|us\n\
-Brasilia|Brazil|-15.79|-47.88|-180|none\n\
-Bratislava|Slovakia|48.15|17.11|60|europe\n\
-Brisbane|Australia|-27.47|153.03|600|none\n\
-Brussels|Belgium|50.85|4.35|60|europe\n\
-Bucharest|Romania|44.43|26.10|120|europe\n\
-Budapest|Hungary|47.50|19.04|60|europe\n\
-Buenos Aires|Argentina|-34.60|-58.38|-180|none\n\
-Bukhara|Uzbekistan|39.77|64.42|300|none\n\
-Buraidah|Saudi Arabia|26.33|43.97|180|none\n\
-Bursa|Turkey|40.19|29.06|180|none\n\
-Busan|South Korea|35.18|129.08|540|none\n\
-Cairo|Egypt|30.04|31.24|120|egypt\n\
-Calgary|Canada|51.05|-114.07|-420|us\n\
-Cancun|Mexico|21.16|-86.85|-300|none\n\
-Cape Town|South Africa|-33.92|18.42|120|none\n\
-Caracas|Venezuela|10.48|-66.90|-240|none\n\
-Cardiff|United Kingdom|51.48|-3.18|0|europe\n\
-Casablanca|Morocco|33.57|-7.59|60|none\n\
-Cebu|Philippines|10.32|123.89|480|none\n\
-Chengdu|China|30.57|104.07|480|none\n\
-Chennai|India (Madras)|13.08|80.27|330|none\n\
-Chiang Mai|Thailand|18.79|98.98|420|none\n\
-Chicago|United States|41.88|-87.63|-360|us\n\
-Chittagong|Bangladesh|22.36|91.78|360|none\n\
-Cologne|Germany|50.94|6.96|60|europe\n\
-Colombo|Sri Lanka|6.93|79.86|330|none\n\
-Comilla|Bangladesh|23.46|91.18|360|none\n\
-Conakry|Guinea|9.64|-13.58|0|none\n\
-Constantine|Algeria|36.37|6.61|60|none\n\
-Copenhagen|Denmark|55.68|12.57|60|europe\n\
-Cordoba|Argentina|-31.42|-64.18|-180|none\n\
-Da Nang|Vietnam|16.05|108.20|420|none\n\
-Dahab|Egypt|28.50|34.51|120|egypt\n\
-Dakar|Senegal|14.72|-17.47|0|none\n\
-Dallas|United States|32.78|-96.80|-360|us\n\
-Damanhur|Egypt|31.03|30.47|120|egypt\n\
-Damascus|Syria|33.51|36.29|180|none\n\
-Damietta|Egypt|31.42|31.81|120|egypt\n\
-Dammam|Saudi Arabia|26.43|50.10|180|none\n\
-Dar es Salaam|Tanzania|-6.79|39.21|180|none\n\
-Darwin|Australia|-12.46|130.84|570|none\n\
-Davao|Philippines|7.07|125.61|480|none\n\
-Dearborn|United States|42.32|-83.18|-300|us\n\
-Deir ez-Zor|Syria|35.34|40.14|180|none\n\
-Denpasar|Indonesia|-8.65|115.22|480|none\n\
-Denver|United States|39.74|-104.99|-420|us\n\
-Desouk|Egypt|31.13|30.65|120|egypt\n\
-Detroit|United States|42.33|-83.05|-300|us\n\
-Dhahran|Saudi Arabia|26.29|50.11|180|none\n\
-Dhaka|Bangladesh|23.81|90.41|360|none\n\
-Dikirnis|Egypt|31.09|31.59|120|egypt\n\
-Diyarbakir|Turkey|37.91|40.24|180|none\n\
-Djibouti|Djibouti|11.59|43.15|180|none\n\
-Dodoma|Tanzania|-6.16|35.75|180|none\n\
-Doha|Qatar|25.29|51.53|180|none\n\
-Douala|Cameroon|4.05|9.77|60|none\n\
-Dubai|United Arab Emirates|25.20|55.27|240|none\n\
-Dublin|Ireland|53.35|-6.26|0|europe\n\
-Durban|South Africa|-29.86|31.03|120|none\n\
-Dushanbe|Tajikistan|38.56|68.77|300|none\n\
-Edfu|Egypt|24.98|32.87|120|egypt\n\
-Edinburgh|United Kingdom|55.95|-3.19|0|europe\n\
-Edmonton|Canada|53.55|-113.49|-420|us\n\
-El Arish|Egypt|31.13|33.80|120|egypt\n\
-El Kharga|Egypt|25.45|30.55|120|egypt\n\
-El Mahalla|Egypt|30.97|31.17|120|egypt\n\
-Erbil|Iraq|36.19|44.01|180|none\n\
-Erzurum|Turkey|39.90|41.27|180|none\n\
-Faisalabad|Pakistan|31.42|73.08|300|none\n\
-Faiyum|Egypt|29.31|30.84|120|egypt\n\
-Fes|Morocco|34.03|-5.00|60|none\n\
-Fortaleza|Brazil|-3.73|-38.53|-180|none\n\
-Frankfurt|Germany|50.11|8.68|60|europe\n\
-Freetown|Sierra Leone|8.48|-13.23|0|none\n\
-Fujairah|United Arab Emirates|25.12|56.33|240|none\n\
-Gaborone|Botswana|-24.65|25.91|120|none\n\
-Gaziantep|Turkey|37.07|37.38|180|none\n\
-Geneva|Switzerland|46.20|6.14|60|europe\n\
-George Town|Malaysia|5.41|100.33|480|none\n\
-Georgetown|Guyana|6.80|-58.16|-240|none\n\
-Giza|Egypt|30.01|31.21|120|egypt\n\
-Glasgow|United Kingdom|55.86|-4.25|0|europe\n\
-Grozny|Russia|43.32|45.69|180|none\n\
-Guadalajara|Mexico|20.67|-103.35|-360|none\n\
-Guangzhou|China|23.13|113.26|480|none\n\
-Guatemala City|Guatemala|14.63|-90.51|-360|none\n\
-Guwahati|India|26.14|91.74|330|none\n\
-Hail|Saudi Arabia|27.52|41.70|180|none\n\
-Halifax|Canada|44.65|-63.57|-240|us\n\
-Hama|Syria|35.13|36.75|180|none\n\
-Hamburg|Germany|53.55|9.99|60|europe\n\
-Hangzhou|China|30.27|120.15|480|none\n\
-Hanoi|Vietnam|21.03|105.85|420|none\n\
-Harare|Zimbabwe|-17.83|31.05|120|none\n\
-Hargeisa|Somalia|9.56|44.06|180|none\n\
-Hat Yai|Thailand|7.01|100.47|420|none\n\
-Helsinki|Finland|60.17|24.94|120|europe\n\
-Herat|Afghanistan|34.35|62.20|270|none\n\
-Ho Chi Minh|Vietnam (Saigon)|10.82|106.63|420|none\n\
-Hodeidah|Yemen|14.80|42.95|180|none\n\
-Hofuf|Saudi Arabia|25.38|49.59|180|none\n\
-Homs|Syria|34.73|36.72|180|none\n\
-Hong Kong|Hong Kong|22.32|114.17|480|none\n\
-Honolulu|United States|21.31|-157.86|-600|none\n\
-Houston|United States|29.76|-95.37|-360|us\n\
-Hurghada|Egypt|27.26|33.81|120|egypt\n\
-Hyderabad|India|17.39|78.49|330|none\n\
-Hyderabad|Pakistan|25.39|68.37|300|none\n\
-Irbid|Jordan|32.56|35.85|180|none\n\
-Isfahan|Iran|32.65|51.67|210|none\n\
-Islamabad|Pakistan|33.68|73.05|300|none\n\
-Ismailia|Egypt|30.59|32.27|120|egypt\n\
-Istanbul|Turkey|41.01|28.98|180|none\n\
-Izmir|Turkey|38.42|27.14|180|none\n\
-Jaipur|India|26.91|75.79|330|none\n\
-Jakarta|Indonesia|-6.18|106.85|420|none\n\
-Jayapura|Indonesia|-2.53|140.72|540|none\n\
-Jeddah|Saudi Arabia|21.54|39.17|180|none\n\
-Jizan|Saudi Arabia|16.89|42.55|180|none\n\
-Johannesburg|South Africa|-26.20|28.05|120|none\n\
-Johor Bahru|Malaysia|1.49|103.74|480|none\n\
-Juba|South Sudan|4.85|31.58|120|none\n\
-Kabul|Afghanistan|34.53|69.17|270|none\n\
-Kafr El Dawar|Egypt|31.13|30.13|120|egypt\n\
-Kafr El Sheikh|Egypt|31.11|30.94|120|egypt\n\
-Kafr El Zayat|Egypt|30.82|30.82|120|egypt\n\
-Kampala|Uganda|0.35|32.58|180|none\n\
-Kandahar|Afghanistan|31.63|65.74|270|none\n\
-Kano|Nigeria|12.00|8.52|60|none\n\
-Karachi|Pakistan|24.86|67.01|300|none\n\
-Karbala|Iraq|32.62|44.02|180|none\n\
-Kathmandu|Nepal|27.72|85.32|345|none\n\
-Kayseri|Turkey|38.73|35.49|180|none\n\
-Kazan|Russia|55.80|49.11|180|none\n\
-Kermanshah|Iran|34.31|47.07|210|none\n\
-Khamis Mushait|Saudi Arabia|18.31|42.73|180|none\n\
-Khartoum|Sudan|15.50|32.56|120|none\n\
-Khulna|Bangladesh|22.85|89.54|360|none\n\
-Kigali|Rwanda|-1.95|30.06|120|none\n\
-Kingston|Jamaica|17.97|-76.79|-300|none\n\
-Kinshasa|DR Congo|-4.44|15.27|60|none\n\
-Kirkuk|Iraq|35.47|44.39|180|none\n\
-Kochi|India|9.93|76.27|330|none\n\
-Kolkata|India (Calcutta)|22.57|88.36|330|none\n\
-Kom Ombo|Egypt|24.47|32.95|120|egypt\n\
-Konya|Turkey|37.87|32.48|180|none\n\
-Kota Bharu|Malaysia|6.13|102.24|480|none\n\
-Kota Kinabalu|Malaysia|5.98|116.07|480|none\n\
-Kozhikode|India|11.26|75.78|330|none\n\
-Kuala Lumpur|Malaysia|3.14|101.69|480|none\n\
-Kuwait City|Kuwait|29.38|47.99|180|none\n\
-Kyiv|Ukraine|50.45|30.52|120|europe\n\
-La Paz|Bolivia|-16.50|-68.15|-240|none\n\
-Lagos|Nigeria|6.52|3.38|60|none\n\
-Lahore|Pakistan|31.55|74.34|300|none\n\
-Latakia|Syria|35.52|35.79|180|none\n\
-Leeds|United Kingdom|53.80|-1.55|0|europe\n\
-Libreville|Gabon|0.42|9.47|60|none\n\
-Lima|Peru|-12.05|-77.04|-300|none\n\
-Lisbon|Portugal|38.72|-9.14|0|europe\n\
-Liverpool|United Kingdom|53.41|-2.99|0|europe\n\
-Ljubljana|Slovenia|46.06|14.51|60|europe\n\
-London|United Kingdom|51.51|-0.13|0|europe\n\
-Los Angeles|United States|34.05|-118.24|-480|us\n\
-Luanda|Angola|-8.84|13.23|60|none\n\
-Lucknow|India|26.85|80.95|330|none\n\
-Lusaka|Zambia|-15.39|28.32|120|none\n\
-Luxembourg|Luxembourg|49.61|6.13|60|europe\n\
-Luxor|Egypt|25.70|32.64|120|egypt\n\
-Lyon|France|45.76|4.84|60|europe\n\
-Madaba|Jordan|31.72|35.79|180|none\n\
-Madinah|Saudi Arabia (Medina)|24.47|39.61|180|none\n\
-Madrid|Spain|40.42|-3.70|60|europe\n\
-Makassar|Indonesia|-5.15|119.43|480|none\n\
-Makkah|Saudi Arabia (Mecca)|21.39|39.86|180|none\n\
-Malaga|Spain|36.72|-4.42|60|europe\n\
-Manado|Indonesia|1.49|124.84|480|none\n\
-Manama|Bahrain|26.23|50.59|180|none\n\
-Manaus|Brazil|-3.12|-60.02|-240|none\n\
-Manchester|United Kingdom|53.48|-2.24|0|europe\n\
-Mandalay|Myanmar|21.98|96.08|390|none\n\
-Manila|Philippines|14.60|120.98|480|none\n\
-Mansoura|Egypt|31.04|31.38|120|egypt\n\
-Maputo|Mozambique|-25.97|32.57|120|none\n\
-Marrakesh|Morocco|31.63|-8.01|60|none\n\
-Marsa Matruh|Egypt|31.35|27.24|120|egypt\n\
-Mashhad|Iran|36.30|59.60|210|none\n\
-Mazar-i-Sharif|Afghanistan|36.71|67.11|270|none\n\
-Medan|Indonesia|3.60|98.67|420|none\n\
-Melaka|Malaysia|2.19|102.25|480|none\n\
-Mersin|Turkey|36.80|34.64|180|none\n\
-Mexico City|Mexico|19.43|-99.13|-360|none\n\
-Miami|United States|25.76|-80.19|-300|us\n\
-Milan|Italy|45.46|9.19|60|europe\n\
-Minneapolis|United States|44.98|-93.27|-360|us\n\
-Minsk|Belarus|53.90|27.57|180|none\n\
-Minya|Egypt|28.11|30.75|120|egypt\n\
-Misrata|Libya|32.38|15.09|120|none\n\
-Mit Ghamr|Egypt|30.72|31.26|120|egypt\n\
-Mogadishu|Somalia|2.05|45.32|180|none\n\
-Mombasa|Kenya|-4.04|39.67|180|none\n\
-Monterrey|Mexico|25.67|-100.31|-360|none\n\
-Montevideo|Uruguay|-34.90|-56.16|-180|none\n\
-Montreal|Canada|45.50|-73.57|-300|us\n\
-Moscow|Russia|55.76|37.62|180|none\n\
-Mosul|Iraq|36.34|43.13|180|none\n\
-Multan|Pakistan|30.20|71.47|300|none\n\
-Mumbai|India (Bombay)|19.08|72.88|330|none\n\
-Munich|Germany|48.14|11.58|60|europe\n\
-Muscat|Oman|23.59|58.41|240|none\n\
-Nagoya|Japan|35.18|136.91|540|none\n\
-Nagpur|India|21.15|79.09|330|none\n\
-Nairobi|Kenya|-1.29|36.82|180|none\n\
-Najaf|Iraq|32.00|44.34|180|none\n\
-Najran|Saudi Arabia|17.49|44.13|180|none\n\
-Nanjing|China|32.06|118.80|480|none\n\
-Naples|Italy|40.85|14.27|60|europe\n\
-Nasr City|Egypt|30.06|31.34|120|egypt\n\
-Ndjamena|Chad|12.13|15.06|60|none\n\
-New Cairo|Egypt|30.03|31.47|120|egypt\n\
-New Delhi|India|28.61|77.21|330|none\n\
-New Orleans|United States|29.95|-90.07|-360|us\n\
-New York|United States|40.71|-74.01|-300|us\n\
-Niamey|Niger|13.51|2.11|60|none\n\
-Nicosia|Cyprus|35.19|33.38|120|europe\n\
-Nizwa|Oman|22.93|57.53|240|none\n\
-Nouakchott|Mauritania|18.09|-15.98|0|none\n\
-Novosibirsk|Russia|55.03|82.92|420|none\n\
-Omdurman|Sudan|15.64|32.48|120|none\n\
-Oran|Algeria|35.70|-0.63|60|none\n\
-Osaka|Japan|34.69|135.50|540|none\n\
-Oslo|Norway|59.91|10.75|60|europe\n\
-Ottawa|Canada|45.42|-75.70|-300|us\n\
-Ouagadougou|Burkina Faso|12.37|-1.52|0|none\n\
-Padang|Indonesia|-0.95|100.35|420|none\n\
-Palembang|Indonesia|-2.98|104.76|420|none\n\
-Panama City|Panama|8.98|-79.52|-300|none\n\
-Paramaribo|Suriname|5.85|-55.20|-180|none\n\
-Paris|France|48.86|2.35|60|europe\n\
-Patna|India|25.59|85.14|330|none\n\
-Pattani|Thailand|6.87|101.25|420|none\n\
-Pekanbaru|Indonesia|0.51|101.45|420|none\n\
-Perth|Australia|-31.95|115.86|480|none\n\
-Peshawar|Pakistan|34.01|71.58|300|none\n\
-Philadelphia|United States|39.95|-75.17|-300|us\n\
-Phnom Penh|Cambodia|11.56|104.93|420|none\n\
-Phoenix|United States|33.45|-112.07|-420|none\n\
-Phuket|Thailand|7.88|98.39|420|none\n\
-Podgorica|Montenegro|42.44|19.26|60|europe\n\
-Pontianak|Indonesia|-0.03|109.33|420|none\n\
-Port of Spain|Trinidad|10.66|-61.51|-240|none\n\
-Port Said|Egypt|31.27|32.30|120|egypt\n\
-Port Sudan|Sudan|19.62|37.22|120|none\n\
-Prague|Czechia|50.08|14.44|60|europe\n\
-Prayagraj|India|25.44|81.85|330|none\n\
-Pretoria|South Africa|-25.75|28.19|120|none\n\
-Pristina|Kosovo|42.67|21.17|60|europe\n\
-Pune|India|18.52|73.86|330|none\n\
-Qatif|Saudi Arabia|26.56|50.01|180|none\n\
-Qena|Egypt|26.16|32.72|120|egypt\n\
-Qom|Iran|34.64|50.88|210|none\n\
-Quebec City|Canada|46.81|-71.21|-300|us\n\
-Quetta|Pakistan|30.18|66.98|300|none\n\
-Quito|Ecuador|-0.18|-78.47|-300|none\n\
-Quseir|Egypt|26.10|34.28|120|egypt\n\
-Rabat|Morocco|34.02|-6.84|60|none\n\
-Rajshahi|Bangladesh|24.37|88.60|360|none\n\
-Rangpur|Bangladesh|25.74|89.25|360|none\n\
-Ras Al Khaimah|United Arab Emirates|25.79|55.94|240|none\n\
-Rasht|Iran|37.28|49.58|210|none\n\
-Rawalpindi|Pakistan|33.60|73.04|300|none\n\
-Regina|Canada|50.45|-104.62|-360|none\n\
-Reykjavik|Iceland|64.15|-21.94|0|none\n\
-Riga|Latvia|56.95|24.11|120|europe\n\
-Rio de Janeiro|Brazil|-22.91|-43.17|-180|none\n\
-Riyadh|Saudi Arabia|24.71|46.68|180|none\n\
-Rome|Italy|41.90|12.50|60|europe\n\
-Rotterdam|Netherlands|51.92|4.48|60|europe\n\
-Safaga|Egypt|26.74|33.94|120|egypt\n\
-Salalah|Oman|17.02|54.09|240|none\n\
-Salt Lake City|United States|40.76|-111.89|-420|us\n\
-Salvador|Brazil|-12.97|-38.51|-180|none\n\
-Samarkand|Uzbekistan|39.65|66.96|300|none\n\
-Samsun|Turkey|41.29|36.33|180|none\n\
-San Diego|United States|32.72|-117.16|-480|us\n\
-San Francisco|United States|37.77|-122.42|-480|us\n\
-San Jose|Costa Rica|9.93|-84.08|-360|none\n\
-Sanaa|Yemen|15.35|44.21|180|none\n\
-Sanliurfa|Turkey|37.16|38.80|180|none\n\
-Santo Domingo|Dominican Rep|18.49|-69.93|-240|none\n\
-Sao Paulo|Brazil|-23.55|-46.63|-180|none\n\
-Sapporo|Japan|43.06|141.35|540|none\n\
-Sarajevo|Bosnia|43.86|18.41|60|europe\n\
-Saskatoon|Canada|52.13|-106.67|-360|none\n\
-Seattle|United States|47.61|-122.33|-480|us\n\
-Semarang|Indonesia|-6.97|110.42|420|none\n\
-Seoul|South Korea|37.57|126.98|540|none\n\
-Seville|Spain|37.39|-5.98|60|europe\n\
-Sfax|Tunisia|34.74|10.76|60|none\n\
-Shanghai|China|31.23|121.47|480|none\n\
-Sharm El Sheikh|Egypt|27.91|34.33|120|egypt\n\
-Shenzhen|China|22.54|114.06|480|none\n\
-Shibin El Kom|Egypt|30.56|31.01|120|egypt\n\
-Shiraz|Iran|29.59|52.58|210|none\n\
-Shymkent|Kazakhstan|42.32|69.59|300|none\n\
-Sinbillawin|Egypt|30.88|31.48|120|egypt\n\
-Singapore|Singapore|1.35|103.82|480|none\n\
-Siwa|Egypt|29.20|25.52|120|egypt\n\
-Skopje|North Macedonia|41.99|21.43|60|europe\n\
-Sofia|Bulgaria|42.70|23.32|120|europe\n\
-Sohag|Egypt|26.56|31.69|120|egypt\n\
-Sohar|Oman|24.35|56.71|240|none\n\
-Srinagar|India|34.08|74.80|330|none\n\
-St Johns|Canada|47.56|-52.71|-210|us\n\
-St Petersburg|Russia|59.93|30.34|180|none\n\
-Stockholm|Sweden|59.33|18.07|60|europe\n\
-Suez|Egypt|29.97|32.55|120|egypt\n\
-Sulaymaniyah|Iraq|35.56|45.43|180|none\n\
-Surabaya|Indonesia|-7.25|112.75|420|none\n\
-Sylhet|Bangladesh|24.90|91.87|360|none\n\
-Tabriz|Iran|38.08|46.29|210|none\n\
-Tabuk|Saudi Arabia|28.38|36.57|180|none\n\
-Taif|Saudi Arabia|21.27|40.42|180|none\n\
-Taipei|Taiwan|25.03|121.57|480|none\n\
-Taiz|Yemen|13.58|44.02|180|none\n\
-Talkha|Egypt|31.05|31.37|120|egypt\n\
-Tallinn|Estonia|59.44|24.75|120|europe\n\
-Tangier|Morocco|35.76|-5.80|60|none\n\
-Tanta|Egypt|30.79|31.00|120|egypt\n\
-Tashkent|Uzbekistan|41.30|69.24|300|none\n\
-Tbilisi|Georgia|41.72|44.79|240|none\n\
-Tehran|Iran|35.69|51.39|210|none\n\
-Thessaloniki|Greece|40.64|22.94|120|europe\n\
-Tirana|Albania|41.33|19.82|60|europe\n\
-Tokyo|Japan|35.68|139.69|540|none\n\
-Toronto|Canada|43.65|-79.38|-300|us\n\
-Trabzon|Turkey|41.00|39.72|180|none\n\
-Tripoli|Libya|32.89|13.19|120|none\n\
-Trivandrum|India|8.52|76.94|330|none\n\
-Tunis|Tunisia|36.81|10.18|60|none\n\
-Ufa|Russia|54.74|55.97|300|none\n\
-Ulaanbaatar|Mongolia|47.89|106.91|480|none\n\
-Urumqi|China|43.83|87.62|480|none\n\
-Valletta|Malta|35.90|14.51|60|europe\n\
-Vancouver|Canada|49.28|-123.12|-480|us\n\
-Varanasi|India|25.32|82.97|330|none\n\
-Vienna|Austria|48.21|16.37|60|europe\n\
-Vientiane|Laos|17.97|102.60|420|none\n\
-Vilnius|Lithuania|54.69|25.28|120|europe\n\
-Visakhapatnam|India|17.69|83.22|330|none\n\
-Vladivostok|Russia|43.12|131.89|600|none\n\
-Warsaw|Poland|52.23|21.01|60|europe\n\
-Washington DC|United States|38.91|-77.04|-300|us\n\
-Winnipeg|Canada|49.90|-97.14|-360|us\n\
-Wuhan|China|30.59|114.31|480|none\n\
-Xian|China|34.34|108.94|480|none\n\
-Yanbu|Saudi Arabia|24.09|38.06|180|none\n\
-Yangon|Myanmar (Rangoon)|16.87|96.20|390|none\n\
-Yaounde|Cameroon|3.85|11.50|60|none\n\
-Yazd|Iran|31.90|54.37|210|none\n\
-Yekaterinburg|Russia|56.84|60.61|300|none\n\
-Yerevan|Armenia|40.18|44.51|240|none\n\
-Yogyakarta|Indonesia|-7.80|110.36|420|none\n\
-Zagazig|Egypt|30.59|31.50|120|egypt\n\
-Zagreb|Croatia|45.81|15.98|60|europe\n\
-Zamboanga|Philippines|6.91|122.07|480|none\n\
-Zarqa|Jordan|32.07|36.09|180|none\n\
-Zifta|Egypt|30.71|31.24|120|egypt\n\
-Zurich|Switzerland|47.38|8.54|60|europe\n\
+10th of Ramadan|Egypt|30.29|31.75|120|egypt|5\n\
+6th of October|Egypt|29.96|30.92|120|egypt|5\n\
+Abbottabad|Pakistan|34.15|73.21|300|none|1\n\
+Abha|Saudi Arabia|18.22|42.51|180|none|4\n\
+Abidjan|Ivory Coast|5.36|-4.01|0|none|3\n\
+Abu Dhabi|United Arab Emirates|24.45|54.38|240|none|8\n\
+Abuja|Nigeria|9.08|7.40|60|none|3\n\
+Accra|Ghana|5.60|-0.19|0|none|3\n\
+Adana|Turkey|37.00|35.32|180|none|13\n\
+Addis Ababa|Ethiopia|9.03|38.74|180|none|3\n\
+Aden|Yemen|12.78|45.04|180|none|4\n\
+Aga|Egypt|30.95|31.29|120|egypt|5\n\
+Agadir|Morocco|30.43|-9.60|60|none|21\n\
+Ahmedabad|India|23.02|72.57|330|none|1\n\
+Ahvaz|Iran|31.32|48.67|210|none|0\n\
+Aktau|Kazakhstan|43.65|51.15|300|none|3\n\
+Al Ain|United Arab Emirates|24.21|55.76|240|none|8\n\
+Al Khobar|Saudi Arabia|26.28|50.21|180|none|4\n\
+Aleppo|Syria|36.20|37.16|180|none|3\n\
+Alexandria|Egypt|31.20|29.92|120|egypt|5\n\
+Algiers|Algeria|36.75|3.06|60|none|19\n\
+Almaty|Kazakhstan|43.24|76.89|300|none|3\n\
+Ambon|Indonesia|-3.70|128.18|540|none|20\n\
+Amman|Jordan|31.95|35.93|180|none|23\n\
+Amritsar|India|31.63|74.87|330|none|1\n\
+Amsterdam|Netherlands|52.37|4.90|60|europe|3\n\
+Anchorage|United States|61.22|-149.90|-540|us|2\n\
+Ankara|Turkey|39.93|32.86|180|none|13\n\
+Antalya|Turkey|36.90|30.70|180|none|13\n\
+Antananarivo|Madagascar|-18.88|47.51|180|none|3\n\
+Antwerp|Belgium|51.22|4.40|60|europe|3\n\
+Aqaba|Jordan|29.53|35.01|180|none|23\n\
+Ashgabat|Turkmenistan|37.96|58.33|300|none|3\n\
+Asmara|Eritrea|15.34|38.93|180|none|3\n\
+Astana|Kazakhstan|51.17|71.45|300|none|3\n\
+Aswan|Egypt|24.09|32.90|120|egypt|5\n\
+Asyut|Egypt|27.18|31.18|120|egypt|5\n\
+Athens|Greece|37.98|23.73|120|europe|3\n\
+Atlanta|United States|33.75|-84.39|-300|us|2\n\
+Baghdad|Iraq|33.31|44.37|180|none|3\n\
+Baku|Azerbaijan|40.41|49.87|240|none|3\n\
+Balikpapan|Indonesia|-1.24|116.83|480|none|20\n\
+Bamako|Mali|12.64|-8.00|0|none|3\n\
+Banda Aceh|Indonesia|5.55|95.32|420|none|20\n\
+Bandar Abbas|Iran|27.18|56.27|210|none|0\n\
+Bandar Brunei|Brunei|4.89|114.94|480|none|3\n\
+Bandar Lampung|Indonesia|-5.43|105.26|420|none|20\n\
+Bandung|Indonesia|-6.92|107.61|420|none|20\n\
+Bangkok|Thailand|13.76|100.50|420|none|3\n\
+Banjarmasin|Indonesia|-3.32|114.59|480|none|20\n\
+Banjul|Gambia|13.45|-16.58|0|none|3\n\
+Barcelona|Spain|41.39|2.17|60|europe|3\n\
+Barisal|Bangladesh|22.70|90.37|360|none|1\n\
+Basra|Iraq|30.51|47.78|180|none|3\n\
+Beijing|China|39.90|116.41|480|none|3\n\
+Belbeis|Egypt|30.42|31.56|120|egypt|5\n\
+Belfast|United Kingdom|54.60|-5.93|0|europe|3\n\
+Belgrade|Serbia|44.79|20.45|60|europe|3\n\
+Bengaluru|India (Bangalore)|12.97|77.59|330|none|1\n\
+Benghazi|Libya|32.12|20.07|120|none|3\n\
+Benha|Egypt|30.46|31.18|120|egypt|5\n\
+Beni Suef|Egypt|29.07|31.10|120|egypt|5\n\
+Berlin|Germany|52.52|13.40|60|europe|3\n\
+Bern|Switzerland|46.95|7.45|60|europe|3\n\
+Bhopal|India|23.26|77.41|330|none|1\n\
+Bhubaneswar|India|20.30|85.82|330|none|1\n\
+Bilqas|Egypt|31.23|31.37|120|egypt|5\n\
+Birmingham|United Kingdom|52.49|-1.89|0|europe|3\n\
+Bishkek|Kyrgyzstan|42.87|74.59|360|none|3\n\
+Bogota|Colombia|4.71|-74.07|-300|none|3\n\
+Boston|United States|42.36|-71.06|-300|us|2\n\
+Brasilia|Brazil|-15.79|-47.88|-180|none|3\n\
+Bratislava|Slovakia|48.15|17.11|60|europe|3\n\
+Brisbane|Australia|-27.47|153.03|600|none|3\n\
+Brussels|Belgium|50.85|4.35|60|europe|3\n\
+Bucharest|Romania|44.43|26.10|120|europe|3\n\
+Budapest|Hungary|47.50|19.04|60|europe|3\n\
+Buenos Aires|Argentina|-34.60|-58.38|-180|none|3\n\
+Bukhara|Uzbekistan|39.77|64.42|300|none|3\n\
+Buraidah|Saudi Arabia|26.33|43.97|180|none|4\n\
+Bursa|Turkey|40.19|29.06|180|none|13\n\
+Busan|South Korea|35.18|129.08|540|none|3\n\
+Cairo|Egypt|30.04|31.24|120|egypt|5\n\
+Calgary|Canada|51.05|-114.07|-420|us|2\n\
+Cancun|Mexico|21.16|-86.85|-300|none|2\n\
+Cape Town|South Africa|-33.92|18.42|120|none|3\n\
+Caracas|Venezuela|10.48|-66.90|-240|none|3\n\
+Cardiff|United Kingdom|51.48|-3.18|0|europe|3\n\
+Casablanca|Morocco|33.57|-7.59|60|none|21\n\
+Cebu|Philippines|10.32|123.89|480|none|3\n\
+Chengdu|China|30.57|104.07|480|none|3\n\
+Chennai|India (Madras)|13.08|80.27|330|none|1\n\
+Chiang Mai|Thailand|18.79|98.98|420|none|3\n\
+Chicago|United States|41.88|-87.63|-360|us|2\n\
+Chittagong|Bangladesh|22.36|91.78|360|none|1\n\
+Cologne|Germany|50.94|6.96|60|europe|3\n\
+Colombo|Sri Lanka|6.93|79.86|330|none|3\n\
+Comilla|Bangladesh|23.46|91.18|360|none|1\n\
+Conakry|Guinea|9.64|-13.58|0|none|3\n\
+Constantine|Algeria|36.37|6.61|60|none|19\n\
+Copenhagen|Denmark|55.68|12.57|60|europe|3\n\
+Cordoba|Argentina|-31.42|-64.18|-180|none|3\n\
+Da Nang|Vietnam|16.05|108.20|420|none|3\n\
+Dahab|Egypt|28.50|34.51|120|egypt|5\n\
+Dakar|Senegal|14.72|-17.47|0|none|3\n\
+Dallas|United States|32.78|-96.80|-360|us|2\n\
+Damanhur|Egypt|31.03|30.47|120|egypt|5\n\
+Damascus|Syria|33.51|36.29|180|none|3\n\
+Damietta|Egypt|31.42|31.81|120|egypt|5\n\
+Dammam|Saudi Arabia|26.43|50.10|180|none|4\n\
+Dar es Salaam|Tanzania|-6.79|39.21|180|none|3\n\
+Darwin|Australia|-12.46|130.84|570|none|3\n\
+Davao|Philippines|7.07|125.61|480|none|3\n\
+Dearborn|United States|42.32|-83.18|-300|us|2\n\
+Deir ez-Zor|Syria|35.34|40.14|180|none|3\n\
+Denpasar|Indonesia|-8.65|115.22|480|none|20\n\
+Denver|United States|39.74|-104.99|-420|us|2\n\
+Desouk|Egypt|31.13|30.65|120|egypt|5\n\
+Detroit|United States|42.33|-83.05|-300|us|2\n\
+Dhahran|Saudi Arabia|26.29|50.11|180|none|4\n\
+Dhaka|Bangladesh|23.81|90.41|360|none|1\n\
+Dikirnis|Egypt|31.09|31.59|120|egypt|5\n\
+Diyarbakir|Turkey|37.91|40.24|180|none|13\n\
+Djibouti|Djibouti|11.59|43.15|180|none|3\n\
+Dodoma|Tanzania|-6.16|35.75|180|none|3\n\
+Doha|Qatar|25.29|51.53|180|none|10\n\
+Douala|Cameroon|4.05|9.77|60|none|3\n\
+Dubai|United Arab Emirates|25.20|55.27|240|none|8\n\
+Dublin|Ireland|53.35|-6.26|0|europe|3\n\
+Durban|South Africa|-29.86|31.03|120|none|3\n\
+Dushanbe|Tajikistan|38.56|68.77|300|none|3\n\
+Edfu|Egypt|24.98|32.87|120|egypt|5\n\
+Edinburgh|United Kingdom|55.95|-3.19|0|europe|3\n\
+Edmonton|Canada|53.55|-113.49|-420|us|2\n\
+El Arish|Egypt|31.13|33.80|120|egypt|5\n\
+El Kharga|Egypt|25.45|30.55|120|egypt|5\n\
+El Mahalla|Egypt|30.97|31.17|120|egypt|5\n\
+Erbil|Iraq|36.19|44.01|180|none|3\n\
+Erzurum|Turkey|39.90|41.27|180|none|13\n\
+Faisalabad|Pakistan|31.42|73.08|300|none|1\n\
+Faiyum|Egypt|29.31|30.84|120|egypt|5\n\
+Fes|Morocco|34.03|-5.00|60|none|21\n\
+Fortaleza|Brazil|-3.73|-38.53|-180|none|3\n\
+Frankfurt|Germany|50.11|8.68|60|europe|3\n\
+Freetown|Sierra Leone|8.48|-13.23|0|none|3\n\
+Fujairah|United Arab Emirates|25.12|56.33|240|none|8\n\
+Gaborone|Botswana|-24.65|25.91|120|none|3\n\
+Gaziantep|Turkey|37.07|37.38|180|none|13\n\
+Geneva|Switzerland|46.20|6.14|60|europe|3\n\
+George Town|Malaysia|5.41|100.33|480|none|17\n\
+Georgetown|Guyana|6.80|-58.16|-240|none|3\n\
+Giza|Egypt|30.01|31.21|120|egypt|5\n\
+Glasgow|United Kingdom|55.86|-4.25|0|europe|3\n\
+Grozny|Russia|43.32|45.69|180|none|14\n\
+Guadalajara|Mexico|20.67|-103.35|-360|none|2\n\
+Guangzhou|China|23.13|113.26|480|none|3\n\
+Guatemala City|Guatemala|14.63|-90.51|-360|none|3\n\
+Guwahati|India|26.14|91.74|330|none|1\n\
+Hail|Saudi Arabia|27.52|41.70|180|none|4\n\
+Halifax|Canada|44.65|-63.57|-240|us|2\n\
+Hama|Syria|35.13|36.75|180|none|3\n\
+Hamburg|Germany|53.55|9.99|60|europe|3\n\
+Hangzhou|China|30.27|120.15|480|none|3\n\
+Hanoi|Vietnam|21.03|105.85|420|none|3\n\
+Harare|Zimbabwe|-17.83|31.05|120|none|3\n\
+Hargeisa|Somalia|9.56|44.06|180|none|3\n\
+Hat Yai|Thailand|7.01|100.47|420|none|3\n\
+Helsinki|Finland|60.17|24.94|120|europe|3\n\
+Herat|Afghanistan|34.35|62.20|270|none|3\n\
+Ho Chi Minh|Vietnam (Saigon)|10.82|106.63|420|none|3\n\
+Hodeidah|Yemen|14.80|42.95|180|none|4\n\
+Hofuf|Saudi Arabia|25.38|49.59|180|none|4\n\
+Homs|Syria|34.73|36.72|180|none|3\n\
+Hong Kong|Hong Kong|22.32|114.17|480|none|3\n\
+Honolulu|United States|21.31|-157.86|-600|none|2\n\
+Houston|United States|29.76|-95.37|-360|us|2\n\
+Hurghada|Egypt|27.26|33.81|120|egypt|5\n\
+Hyderabad|India|17.39|78.49|330|none|1\n\
+Hyderabad|Pakistan|25.39|68.37|300|none|1\n\
+Irbid|Jordan|32.56|35.85|180|none|23\n\
+Isfahan|Iran|32.65|51.67|210|none|0\n\
+Islamabad|Pakistan|33.68|73.05|300|none|1\n\
+Ismailia|Egypt|30.59|32.27|120|egypt|5\n\
+Istanbul|Turkey|41.01|28.98|180|none|13\n\
+Izmir|Turkey|38.42|27.14|180|none|13\n\
+Jaipur|India|26.91|75.79|330|none|1\n\
+Jakarta|Indonesia|-6.18|106.85|420|none|20\n\
+Jayapura|Indonesia|-2.53|140.72|540|none|20\n\
+Jeddah|Saudi Arabia|21.54|39.17|180|none|4\n\
+Jizan|Saudi Arabia|16.89|42.55|180|none|4\n\
+Johannesburg|South Africa|-26.20|28.05|120|none|3\n\
+Johor Bahru|Malaysia|1.49|103.74|480|none|17\n\
+Juba|South Sudan|4.85|31.58|120|none|3\n\
+Kabul|Afghanistan|34.53|69.17|270|none|3\n\
+Kafr El Dawar|Egypt|31.13|30.13|120|egypt|5\n\
+Kafr El Sheikh|Egypt|31.11|30.94|120|egypt|5\n\
+Kafr El Zayat|Egypt|30.82|30.82|120|egypt|5\n\
+Kampala|Uganda|0.35|32.58|180|none|3\n\
+Kandahar|Afghanistan|31.63|65.74|270|none|3\n\
+Kano|Nigeria|12.00|8.52|60|none|3\n\
+Karachi|Pakistan|24.86|67.01|300|none|1\n\
+Karbala|Iraq|32.62|44.02|180|none|3\n\
+Kathmandu|Nepal|27.72|85.32|345|none|3\n\
+Kayseri|Turkey|38.73|35.49|180|none|13\n\
+Kazan|Russia|55.80|49.11|180|none|14\n\
+Kermanshah|Iran|34.31|47.07|210|none|0\n\
+Khamis Mushait|Saudi Arabia|18.31|42.73|180|none|4\n\
+Khartoum|Sudan|15.50|32.56|120|none|3\n\
+Khulna|Bangladesh|22.85|89.54|360|none|1\n\
+Kigali|Rwanda|-1.95|30.06|120|none|3\n\
+Kingston|Jamaica|17.97|-76.79|-300|none|3\n\
+Kinshasa|DR Congo|-4.44|15.27|60|none|3\n\
+Kirkuk|Iraq|35.47|44.39|180|none|3\n\
+Kochi|India|9.93|76.27|330|none|1\n\
+Kolkata|India (Calcutta)|22.57|88.36|330|none|1\n\
+Kom Ombo|Egypt|24.47|32.95|120|egypt|5\n\
+Konya|Turkey|37.87|32.48|180|none|13\n\
+Kota Bharu|Malaysia|6.13|102.24|480|none|17\n\
+Kota Kinabalu|Malaysia|5.98|116.07|480|none|17\n\
+Kozhikode|India|11.26|75.78|330|none|1\n\
+Kuala Lumpur|Malaysia|3.14|101.69|480|none|17\n\
+Kuwait City|Kuwait|29.38|47.99|180|none|9\n\
+Kyiv|Ukraine|50.45|30.52|120|europe|3\n\
+La Paz|Bolivia|-16.50|-68.15|-240|none|3\n\
+Lagos|Nigeria|6.52|3.38|60|none|3\n\
+Lahore|Pakistan|31.55|74.34|300|none|1\n\
+Latakia|Syria|35.52|35.79|180|none|3\n\
+Leeds|United Kingdom|53.80|-1.55|0|europe|3\n\
+Libreville|Gabon|0.42|9.47|60|none|3\n\
+Lima|Peru|-12.05|-77.04|-300|none|3\n\
+Lisbon|Portugal|38.72|-9.14|0|europe|3\n\
+Liverpool|United Kingdom|53.41|-2.99|0|europe|3\n\
+Ljubljana|Slovenia|46.06|14.51|60|europe|3\n\
+London|United Kingdom|51.51|-0.13|0|europe|3\n\
+Los Angeles|United States|34.05|-118.24|-480|us|2\n\
+Luanda|Angola|-8.84|13.23|60|none|3\n\
+Lucknow|India|26.85|80.95|330|none|1\n\
+Lusaka|Zambia|-15.39|28.32|120|none|3\n\
+Luxembourg|Luxembourg|49.61|6.13|60|europe|3\n\
+Luxor|Egypt|25.70|32.64|120|egypt|5\n\
+Lyon|France|45.76|4.84|60|europe|12\n\
+Madaba|Jordan|31.72|35.79|180|none|23\n\
+Madinah|Saudi Arabia (Medina)|24.47|39.61|180|none|4\n\
+Madrid|Spain|40.42|-3.70|60|europe|3\n\
+Makassar|Indonesia|-5.15|119.43|480|none|20\n\
+Makkah|Saudi Arabia (Mecca)|21.39|39.86|180|none|4\n\
+Malaga|Spain|36.72|-4.42|60|europe|3\n\
+Manado|Indonesia|1.49|124.84|480|none|20\n\
+Manama|Bahrain|26.23|50.59|180|none|8\n\
+Manaus|Brazil|-3.12|-60.02|-240|none|3\n\
+Manchester|United Kingdom|53.48|-2.24|0|europe|3\n\
+Mandalay|Myanmar|21.98|96.08|390|none|3\n\
+Manila|Philippines|14.60|120.98|480|none|3\n\
+Mansoura|Egypt|31.04|31.38|120|egypt|5\n\
+Maputo|Mozambique|-25.97|32.57|120|none|3\n\
+Marrakesh|Morocco|31.63|-8.01|60|none|21\n\
+Marsa Matruh|Egypt|31.35|27.24|120|egypt|5\n\
+Mashhad|Iran|36.30|59.60|210|none|0\n\
+Mazar-i-Sharif|Afghanistan|36.71|67.11|270|none|3\n\
+Medan|Indonesia|3.60|98.67|420|none|20\n\
+Melaka|Malaysia|2.19|102.25|480|none|17\n\
+Mersin|Turkey|36.80|34.64|180|none|13\n\
+Mexico City|Mexico|19.43|-99.13|-360|none|2\n\
+Miami|United States|25.76|-80.19|-300|us|2\n\
+Milan|Italy|45.46|9.19|60|europe|3\n\
+Minneapolis|United States|44.98|-93.27|-360|us|2\n\
+Minsk|Belarus|53.90|27.57|180|none|3\n\
+Minya|Egypt|28.11|30.75|120|egypt|5\n\
+Misrata|Libya|32.38|15.09|120|none|3\n\
+Mit Ghamr|Egypt|30.72|31.26|120|egypt|5\n\
+Mogadishu|Somalia|2.05|45.32|180|none|3\n\
+Mombasa|Kenya|-4.04|39.67|180|none|3\n\
+Monterrey|Mexico|25.67|-100.31|-360|none|2\n\
+Montevideo|Uruguay|-34.90|-56.16|-180|none|3\n\
+Montreal|Canada|45.50|-73.57|-300|us|2\n\
+Moscow|Russia|55.76|37.62|180|none|14\n\
+Mosul|Iraq|36.34|43.13|180|none|3\n\
+Multan|Pakistan|30.20|71.47|300|none|1\n\
+Mumbai|India (Bombay)|19.08|72.88|330|none|1\n\
+Munich|Germany|48.14|11.58|60|europe|3\n\
+Muscat|Oman|23.59|58.41|240|none|8\n\
+Nagoya|Japan|35.18|136.91|540|none|3\n\
+Nagpur|India|21.15|79.09|330|none|1\n\
+Nairobi|Kenya|-1.29|36.82|180|none|3\n\
+Najaf|Iraq|32.00|44.34|180|none|3\n\
+Najran|Saudi Arabia|17.49|44.13|180|none|4\n\
+Nanjing|China|32.06|118.80|480|none|3\n\
+Naples|Italy|40.85|14.27|60|europe|3\n\
+Nasr City|Egypt|30.06|31.34|120|egypt|5\n\
+Ndjamena|Chad|12.13|15.06|60|none|3\n\
+New Cairo|Egypt|30.03|31.47|120|egypt|5\n\
+New Delhi|India|28.61|77.21|330|none|1\n\
+New Orleans|United States|29.95|-90.07|-360|us|2\n\
+New York|United States|40.71|-74.01|-300|us|2\n\
+Niamey|Niger|13.51|2.11|60|none|3\n\
+Nicosia|Cyprus|35.19|33.38|120|europe|3\n\
+Nizwa|Oman|22.93|57.53|240|none|8\n\
+Nouakchott|Mauritania|18.09|-15.98|0|none|3\n\
+Novosibirsk|Russia|55.03|82.92|420|none|14\n\
+Omdurman|Sudan|15.64|32.48|120|none|3\n\
+Oran|Algeria|35.70|-0.63|60|none|19\n\
+Osaka|Japan|34.69|135.50|540|none|3\n\
+Oslo|Norway|59.91|10.75|60|europe|3\n\
+Ottawa|Canada|45.42|-75.70|-300|us|2\n\
+Ouagadougou|Burkina Faso|12.37|-1.52|0|none|3\n\
+Padang|Indonesia|-0.95|100.35|420|none|20\n\
+Palembang|Indonesia|-2.98|104.76|420|none|20\n\
+Panama City|Panama|8.98|-79.52|-300|none|3\n\
+Paramaribo|Suriname|5.85|-55.20|-180|none|3\n\
+Paris|France|48.86|2.35|60|europe|12\n\
+Patna|India|25.59|85.14|330|none|1\n\
+Pattani|Thailand|6.87|101.25|420|none|3\n\
+Pekanbaru|Indonesia|0.51|101.45|420|none|20\n\
+Perth|Australia|-31.95|115.86|480|none|3\n\
+Peshawar|Pakistan|34.01|71.58|300|none|1\n\
+Philadelphia|United States|39.95|-75.17|-300|us|2\n\
+Phnom Penh|Cambodia|11.56|104.93|420|none|3\n\
+Phoenix|United States|33.45|-112.07|-420|none|2\n\
+Phuket|Thailand|7.88|98.39|420|none|3\n\
+Podgorica|Montenegro|42.44|19.26|60|europe|3\n\
+Pontianak|Indonesia|-0.03|109.33|420|none|20\n\
+Port of Spain|Trinidad|10.66|-61.51|-240|none|3\n\
+Port Said|Egypt|31.27|32.30|120|egypt|5\n\
+Port Sudan|Sudan|19.62|37.22|120|none|3\n\
+Prague|Czechia|50.08|14.44|60|europe|3\n\
+Prayagraj|India|25.44|81.85|330|none|1\n\
+Pretoria|South Africa|-25.75|28.19|120|none|3\n\
+Pristina|Kosovo|42.67|21.17|60|europe|3\n\
+Pune|India|18.52|73.86|330|none|1\n\
+Qatif|Saudi Arabia|26.56|50.01|180|none|4\n\
+Qena|Egypt|26.16|32.72|120|egypt|5\n\
+Qom|Iran|34.64|50.88|210|none|0\n\
+Quebec City|Canada|46.81|-71.21|-300|us|2\n\
+Quetta|Pakistan|30.18|66.98|300|none|1\n\
+Quito|Ecuador|-0.18|-78.47|-300|none|3\n\
+Quseir|Egypt|26.10|34.28|120|egypt|5\n\
+Rabat|Morocco|34.02|-6.84|60|none|21\n\
+Rajshahi|Bangladesh|24.37|88.60|360|none|1\n\
+Rangpur|Bangladesh|25.74|89.25|360|none|1\n\
+Ras Al Khaimah|United Arab Emirates|25.79|55.94|240|none|8\n\
+Rasht|Iran|37.28|49.58|210|none|0\n\
+Rawalpindi|Pakistan|33.60|73.04|300|none|1\n\
+Regina|Canada|50.45|-104.62|-360|none|2\n\
+Reykjavik|Iceland|64.15|-21.94|0|none|3\n\
+Riga|Latvia|56.95|24.11|120|europe|3\n\
+Rio de Janeiro|Brazil|-22.91|-43.17|-180|none|3\n\
+Riyadh|Saudi Arabia|24.71|46.68|180|none|4\n\
+Rome|Italy|41.90|12.50|60|europe|3\n\
+Rotterdam|Netherlands|51.92|4.48|60|europe|3\n\
+Safaga|Egypt|26.74|33.94|120|egypt|5\n\
+Salalah|Oman|17.02|54.09|240|none|8\n\
+Salt Lake City|United States|40.76|-111.89|-420|us|2\n\
+Salvador|Brazil|-12.97|-38.51|-180|none|3\n\
+Samarkand|Uzbekistan|39.65|66.96|300|none|3\n\
+Samsun|Turkey|41.29|36.33|180|none|13\n\
+San Diego|United States|32.72|-117.16|-480|us|2\n\
+San Francisco|United States|37.77|-122.42|-480|us|2\n\
+San Jose|Costa Rica|9.93|-84.08|-360|none|3\n\
+Sanaa|Yemen|15.35|44.21|180|none|4\n\
+Sanliurfa|Turkey|37.16|38.80|180|none|13\n\
+Santo Domingo|Dominican Rep|18.49|-69.93|-240|none|3\n\
+Sao Paulo|Brazil|-23.55|-46.63|-180|none|3\n\
+Sapporo|Japan|43.06|141.35|540|none|3\n\
+Sarajevo|Bosnia|43.86|18.41|60|europe|3\n\
+Saskatoon|Canada|52.13|-106.67|-360|none|2\n\
+Seattle|United States|47.61|-122.33|-480|us|2\n\
+Semarang|Indonesia|-6.97|110.42|420|none|20\n\
+Seoul|South Korea|37.57|126.98|540|none|3\n\
+Seville|Spain|37.39|-5.98|60|europe|3\n\
+Sfax|Tunisia|34.74|10.76|60|none|18\n\
+Shanghai|China|31.23|121.47|480|none|3\n\
+Sharm El Sheikh|Egypt|27.91|34.33|120|egypt|5\n\
+Shenzhen|China|22.54|114.06|480|none|3\n\
+Shibin El Kom|Egypt|30.56|31.01|120|egypt|5\n\
+Shiraz|Iran|29.59|52.58|210|none|0\n\
+Shymkent|Kazakhstan|42.32|69.59|300|none|3\n\
+Sinbillawin|Egypt|30.88|31.48|120|egypt|5\n\
+Singapore|Singapore|1.35|103.82|480|none|11\n\
+Siwa|Egypt|29.20|25.52|120|egypt|5\n\
+Skopje|North Macedonia|41.99|21.43|60|europe|3\n\
+Sofia|Bulgaria|42.70|23.32|120|europe|3\n\
+Sohag|Egypt|26.56|31.69|120|egypt|5\n\
+Sohar|Oman|24.35|56.71|240|none|8\n\
+Srinagar|India|34.08|74.80|330|none|1\n\
+St Johns|Canada|47.56|-52.71|-210|us|2\n\
+St Petersburg|Russia|59.93|30.34|180|none|14\n\
+Stockholm|Sweden|59.33|18.07|60|europe|3\n\
+Suez|Egypt|29.97|32.55|120|egypt|5\n\
+Sulaymaniyah|Iraq|35.56|45.43|180|none|3\n\
+Surabaya|Indonesia|-7.25|112.75|420|none|20\n\
+Sylhet|Bangladesh|24.90|91.87|360|none|1\n\
+Tabriz|Iran|38.08|46.29|210|none|0\n\
+Tabuk|Saudi Arabia|28.38|36.57|180|none|4\n\
+Taif|Saudi Arabia|21.27|40.42|180|none|4\n\
+Taipei|Taiwan|25.03|121.57|480|none|3\n\
+Taiz|Yemen|13.58|44.02|180|none|4\n\
+Talkha|Egypt|31.05|31.37|120|egypt|5\n\
+Tallinn|Estonia|59.44|24.75|120|europe|3\n\
+Tangier|Morocco|35.76|-5.80|60|none|21\n\
+Tanta|Egypt|30.79|31.00|120|egypt|5\n\
+Tashkent|Uzbekistan|41.30|69.24|300|none|3\n\
+Tbilisi|Georgia|41.72|44.79|240|none|3\n\
+Tehran|Iran|35.69|51.39|210|none|0\n\
+Thessaloniki|Greece|40.64|22.94|120|europe|3\n\
+Tirana|Albania|41.33|19.82|60|europe|3\n\
+Tokyo|Japan|35.68|139.69|540|none|3\n\
+Toronto|Canada|43.65|-79.38|-300|us|2\n\
+Trabzon|Turkey|41.00|39.72|180|none|13\n\
+Tripoli|Libya|32.89|13.19|120|none|3\n\
+Trivandrum|India|8.52|76.94|330|none|1\n\
+Tunis|Tunisia|36.81|10.18|60|none|18\n\
+Ufa|Russia|54.74|55.97|300|none|14\n\
+Ulaanbaatar|Mongolia|47.89|106.91|480|none|3\n\
+Urumqi|China|43.83|87.62|480|none|3\n\
+Valletta|Malta|35.90|14.51|60|europe|3\n\
+Vancouver|Canada|49.28|-123.12|-480|us|2\n\
+Varanasi|India|25.32|82.97|330|none|1\n\
+Vienna|Austria|48.21|16.37|60|europe|3\n\
+Vientiane|Laos|17.97|102.60|420|none|3\n\
+Vilnius|Lithuania|54.69|25.28|120|europe|3\n\
+Visakhapatnam|India|17.69|83.22|330|none|1\n\
+Vladivostok|Russia|43.12|131.89|600|none|14\n\
+Warsaw|Poland|52.23|21.01|60|europe|3\n\
+Washington DC|United States|38.91|-77.04|-300|us|2\n\
+Winnipeg|Canada|49.90|-97.14|-360|us|2\n\
+Wuhan|China|30.59|114.31|480|none|3\n\
+Xian|China|34.34|108.94|480|none|3\n\
+Yanbu|Saudi Arabia|24.09|38.06|180|none|4\n\
+Yangon|Myanmar (Rangoon)|16.87|96.20|390|none|3\n\
+Yaounde|Cameroon|3.85|11.50|60|none|3\n\
+Yazd|Iran|31.90|54.37|210|none|0\n\
+Yekaterinburg|Russia|56.84|60.61|300|none|14\n\
+Yerevan|Armenia|40.18|44.51|240|none|3\n\
+Yogyakarta|Indonesia|-7.80|110.36|420|none|20\n\
+Zagazig|Egypt|30.59|31.50|120|egypt|5\n\
+Zagreb|Croatia|45.81|15.98|60|europe|3\n\
+Zamboanga|Philippines|6.91|122.07|480|none|3\n\
+Zarqa|Jordan|32.07|36.09|180|none|23\n\
+Zifta|Egypt|30.71|31.24|120|egypt|5\n\
+Zurich|Switzerland|47.38|8.54|60|europe|3\n\
 ";
 
 #[cfg(test)]
@@ -688,16 +699,78 @@ mod tests {
 
     #[test]
     fn a_line_is_read_back_exactly() {
-        let c = City::parse("Quito|Ecuador|-0.18|-78.47|-300|none").unwrap();
-        assert_eq!((c.name, c.country, c.lat_e2, c.lon_e2, c.utc_min, c.dst), ("Quito", "Ecuador", -18, -7847, -300, Dst::None));
+        let c = City::parse("Quito|Ecuador|-0.18|-78.47|-300|none|3").unwrap();
+        assert_eq!(
+            (c.name, c.country, c.lat_e2, c.lon_e2, c.utc_min, c.dst, c.method),
+            ("Quito", "Ecuador", -18, -7847, -300, Dst::None, 3)
+        );
         // What is not a line is not read as one.
         assert_eq!(City::parse(""), None);
-        assert_eq!(City::parse("Quito|Ecuador|-0.18|-78.47|-300"), None);
-        assert_eq!(City::parse("Quito|Ecuador|-0.18|-78.47|-300|none|extra"), None);
-        assert_eq!(City::parse("Quito|Ecuador|-0.1|-78.47|-300|none"), None);
-        assert_eq!(City::parse("Quito|Ecuador|-0.180|-78.47|-300|none"), None);
-        assert_eq!(City::parse("Quito|Ecuador|x.18|-78.47|-300|none"), None);
-        assert_eq!(City::parse("Quito|Ecuador|-0.18|-78.47|-300|mars"), None);
-        assert_eq!(City::parse("|Ecuador|-0.18|-78.47|-300|none"), None);
+        assert_eq!(City::parse("Quito|Ecuador|-0.18|-78.47|-300|none"), None); // no method
+        assert_eq!(City::parse("Quito|Ecuador|-0.18|-78.47|-300|none|3|extra"), None);
+        assert_eq!(City::parse("Quito|Ecuador|-0.18|-78.47|-300|none|x"), None);
+        assert_eq!(City::parse("Quito|Ecuador|-0.1|-78.47|-300|none|3"), None);
+        assert_eq!(City::parse("Quito|Ecuador|-0.180|-78.47|-300|none|3"), None);
+        assert_eq!(City::parse("Quito|Ecuador|x.18|-78.47|-300|none|3"), None);
+        assert_eq!(City::parse("Quito|Ecuador|-0.18|-78.47|-300|mars|3"), None);
+        assert_eq!(City::parse("|Ecuador|-0.18|-78.47|-300|none|3"), None);
+    }
+
+    #[test]
+    fn every_place_names_a_method_the_lamp_has_or_says_it_has_none() {
+        for c in cities() {
+            assert!(
+                c.method == 0 || crate::methods::by_id(c.method).is_some(),
+                "{} {}: method {} is not a preset",
+                c.name,
+                c.country,
+                c.method
+            );
+        }
+        // 0 is only for countries whose method the lamp cannot follow: Iran, so far.
+        assert!(cities().filter(|c| c.method == 0).all(|c| c.country == "Iran"));
+        assert!(cities().any(|c| c.method == 0));
+    }
+
+    #[test]
+    fn a_country_with_its_own_authority_gets_it_and_the_rest_the_default() {
+        let methods_of = |country: &str| {
+            let mut v = [0u8; 4];
+            let mut n = 0;
+            for c in cities().filter(|c| c.country.split(" (").next() == Some(country)) {
+                if !v[..n].contains(&c.method) && n < 4 {
+                    v[n] = c.method;
+                    n += 1;
+                }
+            }
+            (v, n)
+        };
+        // One method per country for the ones whose authority the lamp knows by name.
+        for (country, id) in [
+            ("Egypt", 5),
+            ("Saudi Arabia", 4),
+            ("Turkey", 13),
+            ("Indonesia", 20),
+            ("Malaysia", 17),
+            ("Pakistan", 1),
+            ("United States", 2),
+            ("Canada", 2),
+            ("Morocco", 21),
+            ("Jordan", 23),
+            ("United Arab Emirates", 8),
+        ] {
+            let (v, n) = methods_of(country);
+            assert_eq!((n, v[0]), (1, id), "{country}");
+        }
+        // And a country with no authority of its own is given the default, not a neighbour's.
+        for country in ["United Kingdom", "Germany", "Nigeria", "Brazil", "Japan", "Kenya"] {
+            let (v, n) = methods_of(country);
+            assert_eq!((n, v[0]), (1, crate::methods::DEFAULT_ID), "{country}");
+        }
+        // The two the report that started this was about.
+        let makkah = cities().find(|c| c.name == "Makkah").unwrap();
+        assert_eq!(makkah.method, 4);
+        let cairo = cities().find(|c| c.name == "Cairo").unwrap();
+        assert_eq!(cairo.method, 5);
     }
 }
