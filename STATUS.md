@@ -4,13 +4,15 @@ The one place that says where the build stands and what is in hand.
 `docs/` is reference and does not repeat any of this. Update this file in the
 same commit as the build-log row that changes it.
 
-Last updated: 8 Nov 2026
+Last updated: 9 Nov 2026
 
 ## Current move
 
-**Roadmap move 1 · It keeps its own time** — the move in progress.
-The plan and its gate are in `docs/index.html#roadmap`. Moves 2 (it wakes you)
-and 3 (it ships) follow in that order.
+**Roadmap move 2 · It wakes you** is in progress; move 1 is built and seen (the last gate checks are
+in "Written but not yet seen"). The sound half of move 2 is done on the bench and in the app: the
+MP3 board plays by file number, the menu chooses and previews sounds, and a due prayer or alarm
+plays its own. Not started: the LED ring in the app, the rail switch, and the low-voltage test.
+The plan and its gates are in `docs/index.html#roadmap`. Move 3 (it ships) follows.
 
 ## Seen on the board
 
@@ -154,3 +156,59 @@ Numbers or sightings only the board can give.
   that prayer's offset (the settings block keeps one per prayer, but no screen
   sets it yet). Not done: Isha 120 minutes in Ramadan for the Umm al-Qura method
   (Saudi Arabia), which the lamp has no Hijri calendar to follow.
+
+## Next steps, in the order I would take them
+
+1. **Check what is written but not seen** (list above): the prayer screens, the alarm editor's Sound
+   and Volume rows, and a due prayer or alarm ringing by itself (set an alarm a minute ahead with
+   the card in). Then step through the alarm sounds 1 to 88 and say which ringtones are wrong, quiet
+   or unwanted; swap them with `tools/ringtone_order.txt` and `tools/audio_card.py`.
+2. **Low cell voltage:** run the player and speaker from the LM2596 at 4.2, 3.5 and 3.2 V and see
+   whether a track plays at a usable volume and without resets (the open question under "Open
+   questions").
+3. **The rail switch:** fit the AO3400, switch the player's ground with GPIO5, and measure the idle
+   draw with the rail off. Today the player is powered from the 5V pin all the time (about 20 mA
+   idle), which will not do on a battery.
+4. **The LED ring** in the app (the bench program `bin/ring.rs` works): the ramp before an alarm,
+   from the same call that starts the sound.
+5. **The CPU clock:** the app uses `CpuClock::max()` (160 MHz). esp-radio needs at least 80 MHz for
+   Wi-Fi. Measure how long a normal minute-tick boot is awake, then try 80 MHz and re-check the Wi-Fi
+   sync, the setup mode and the panel. Not started.
+6. **The base:** measure the real MP3 board and its card socket (width, length, socket height above
+   the board), set `PLAYER_W`, `PLAYER_L`, `PLAYER_POST_H`, `PLAYER_SOCKET_H` in `cad/base.py`,
+   rerun `python base.py round`, recompute the tipping figures for three cups, and fix the SuperMini
+   pin rows in `docs/hardware.html` (see below). Nothing has been printed.
+7. **Buy:** the globe first (the print is sized from its neck), lead shot, then the repeat quote from
+   Hawk (see "Still to buy").
+
+## Working notes for whoever picks this up
+
+- **The SuperMini's pin rows.** With the USB-C at the top and the component side up, 5V, GND, 3V3,
+  GPIO4, 3, 2, 1, 0 are on the **right** row and GPIO5, 6, 7, 8, 9, 10, 20, 21 on the **left**. The
+  wiring diagram in `docs/hardware.html` lists them the other way round: it is wrong, not yet fixed.
+  The player test wires: 5V and GND to the player's VCC and GND, GPIO21 through 1 kΩ to its RX,
+  GPIO20 through 1 kΩ from its TX, the speaker across its two outer pads (SPK1 +, SPK2 −).
+- **The MP3 board** (DFPlayer Mini clone, HW-247A V0.5.1) has no letters printed on it. Hold it with
+  the microSD slot up and "DFPlayer Mini" the right way up: VCC is the top-left pad, and the pins
+  follow DFRobot's datasheet picture. It was first mounted the wrong way round, which killed the
+  ESP32 on power-up without harm. What this board really does: the card's file count is command 0x48
+  (the datasheet table has 0x47 and 0x48 swapped), 0x12 plays `/mp3/NNNN.mp3` by the number in the
+  name across gaps, 0x3D announces a track's end with its position, 0x4B always answers 0 (useless),
+  and it needs about 120 ms between commands (`Player::send`), or a play right after a volume is lost.
+- **The card** is numbered adhan `0001`-`0100` and alarm sounds `0101`-`0200`; the lamp never counts
+  files, and every unused slot holds a spoken placeholder. `audio/` is git-ignored; `tools/audio_card.py`
+  rebuilds `audio/sd/mp3` from `audio/ringtones-source` (ringtones, placeholders, index), the credits are
+  `docs/audio-credits.md`. The card shows up as `/dev/sda1` or `/dev/sdb1` under `/run/media/ibrahim/`;
+  copy only the files that changed and compare every file afterwards.
+- **Building:** `just build`, `just lamp`, `just sound`, `just numbering` from `firmware_ws/wakecue`
+  (`just` loads `DEV_MODE` from `.env`; plain `cargo build` fails without it). `cargo test` from
+  `firmware_ws` runs 248 core tests and the settings tool's 8. The block grew to 208 payload bytes; an
+  old 200-byte block still loads as all Default.
+- **The CAD** needs `trimesh`, `numpy` and `manifold3d`. They were in `/tmp/cadvenv`, which may be
+  gone; this machine's shell cannot reach the package file host, so recreate it with `uv` or from the
+  desktop. `cad/player_search.py` checks where the board can sit.
+- **Network from the shell** reaches only some hosts: Wikimedia (throttles hard: wait minutes after a
+  429), Openverse and Freesound's CDN, a few free-sound sites. GitHub, Hugging Face and the Python
+  package files are blocked. The Chrome DevTools tools exist for the rest.
+- **Commits** carry no co-author trailers (the user's rule). The notes in `docs/` and this file are
+  updated in the same commit as the build-log row that changes them.
