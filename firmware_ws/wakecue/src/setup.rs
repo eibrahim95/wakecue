@@ -5,17 +5,21 @@
 //! started until the owner picks "Phone setup" in the menu. [`run`] never returns: it ends the
 //! normal program for good, and Back or a touch resets the chip back into it.
 //!
-//! So far it answers the question the roadmap's trip-wire asks: can a real phone join and get an
-//! address from our own DHCP server. Nothing is served on top yet: no page and no DNS.
+//! Three small servers share the network: DHCP gives the phone an address, DNS answers every name
+//! with the lamp's own address, and a web server on port 80 serves the one setup page. The phone
+//! notices that every site is the lamp and offers to "sign in", which opens the page by itself.
+//! What the page changes is written to flash the same way the menu does it.
 
 use alloc::format;
 use defmt::info;
 use embassy_executor::Spawner;
+use embassy_net::tcp::TcpSocket;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{
     IpAddress, IpEndpoint, Ipv4Address, Ipv4Cidr, Runner, Stack, StackResources, StaticConfigV4,
 };
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Timer, with_timeout};
+use esp_storage::FlashStorage;
 use esp_hal::gpio::Input;
 use esp_hal::i2c::master::I2c;
 use esp_hal::peripherals::{FROM_CPU_INTR0, TIMG0, WIFI};
@@ -25,6 +29,10 @@ use esp_radio::wifi::ap::{AccessPointConfig, EventInfo};
 use esp_radio::wifi::{Config, Interface, WifiController};
 use lamp_core::buttons::{self, Key, KeyReader};
 use lamp_core::dhcp::{self, Kind, Server};
+use lamp_core::dns;
+use lamp_core::http::{self, Parsed};
+use lamp_core::portal::{self, BODY_MAX, HEAD_MAX};
+use lamp_core::settings::{Settings, Stored};
 use static_cell::StaticCell;
 
 use wakecue::display::Face;
@@ -37,6 +45,13 @@ const LEASE_S: u32 = 3600;
 /// How often the buttons and the pad are looked at while the network is up.
 const POLL_MS: u64 = 50;
 
+/// The largest request the page takes: headers and form together. A phone's headers run to a few
+/// hundred bytes and the form to a few hundred more.
+const REQUEST_MAX: usize = 2048;
+
+/// How long a connection may take to send its request, and to take the reply.
+const IO_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Raise `Wakecue-XXXX` and serve DHCP until Back or a touch resets the chip.
 ///
 /// The panel is drawn once with the network's name and put to sleep, so its picture stays up for
@@ -48,6 +63,9 @@ pub fn run(
     interrupt: FROM_CPU_INTR0<'static>,
     bus: I2c<'static, esp_hal::Blocking>,
     pad: Input<'static>,
+    flash: FlashStorage<'static>,
+    sectors: [Option<Stored>; 2],
+    settings: Settings,
 ) -> ! {
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 66320);
     let timg0 = TimerGroup::new(timer);
@@ -91,6 +109,8 @@ pub fn run(
     EXECUTOR.init(esp_rtos::embassy::Executor::new()).run(move |spawner: Spawner| {
         spawner.spawn(net_task(runner).unwrap());
         spawner.spawn(dhcp_task(stack).unwrap());
+        spawner.spawn(dns_task(stack).unwrap());
+        spawner.spawn(http_task(stack, flash, sectors, settings).unwrap());
         spawner.spawn(events_task(controller).unwrap());
         spawner.spawn(leave_task(bus, pad).unwrap());
     })
@@ -155,6 +175,128 @@ async fn dhcp_task(stack: Stack<'static>) -> ! {
         if let Err(e) = socket.send_to(&reply[..r.len], to).await {
             info!("setup: dhcp send failed: {:?}", defmt::Debug2Format(&e));
         }
+    }
+}
+
+/// Answer every name with the lamp's own address.
+#[embassy_executor::task]
+async fn dns_task(stack: Stack<'static>) -> ! {
+    let mut rx_meta = [PacketMetadata::EMPTY; 4];
+    let mut rx_buf = [0u8; 1024];
+    let mut tx_meta = [PacketMetadata::EMPTY; 4];
+    let mut tx_buf = [0u8; 1024];
+    let mut socket = UdpSocket::new(stack, &mut rx_meta, &mut rx_buf, &mut tx_meta, &mut tx_buf);
+    socket.bind(dns::PORT).expect("bind the DNS port");
+    info!("setup: dns listening on port {}", dns::PORT);
+
+    let mut query = [0u8; 512];
+    let mut reply = [0u8; dns::REPLY_MAX];
+    loop {
+        let (n, from) = match socket.recv_from(&mut query).await {
+            Ok(got) => got,
+            Err(e) => {
+                info!("setup: dns receive failed: {:?}", defmt::Debug2Format(&e));
+                continue;
+            }
+        };
+        if let Some(len) = dns::answer(&query[..n], LAMP, &mut reply)
+            && let Err(e) = socket.send_to(&reply[..len], from).await
+        {
+            info!("setup: dns send failed: {:?}", defmt::Debug2Format(&e));
+        }
+    }
+}
+
+/// Write all of `data`, a piece at a time: the socket's buffer is smaller than the page.
+async fn send_all(socket: &mut TcpSocket<'_>, mut data: &[u8]) -> bool {
+    while !data.is_empty() {
+        match with_timeout(IO_TIMEOUT, socket.write(data)).await {
+            Ok(Ok(n)) if n > 0 => data = &data[n..],
+            _ => return false,
+        }
+    }
+    true
+}
+
+/// The setup page, one connection at a time. A phone that opens a second connection while this one
+/// is busy is refused and tries again, which the portal checks are happy to do.
+///
+/// This task owns the settings and the flash: the page edits a copy, and only a form that passed
+/// every check is written, the same way the menu stores a change.
+#[embassy_executor::task]
+async fn http_task(
+    stack: Stack<'static>,
+    mut flash: FlashStorage<'static>,
+    mut sectors: [Option<Stored>; 2],
+    mut settings: Settings,
+) -> ! {
+    let mut rx_buf = [0u8; 1024];
+    let mut tx_buf = [0u8; 2048];
+    let mut socket = TcpSocket::new(stack, &mut rx_buf, &mut tx_buf);
+    let mut request = [0u8; REQUEST_MAX];
+    let mut head = [0u8; HEAD_MAX];
+    let mut body = [0u8; BODY_MAX];
+    info!("setup: http listening on port 80");
+    loop {
+        if let Err(e) = socket.accept(80).await {
+            info!("setup: http accept failed: {:?}", defmt::Debug2Format(&e));
+            continue;
+        }
+
+        // Read until the request is whole, or has failed, or has outgrown its buffer.
+        let mut have = 0;
+        let parsed = loop {
+            match http::parse(&request[..have]) {
+                Parsed::Incomplete => {}
+                done => break Some(done),
+            }
+            if have == request.len() {
+                break None;
+            }
+            match with_timeout(IO_TIMEOUT, socket.read(&mut request[have..])).await {
+                Ok(Ok(n)) if n > 0 => have += n,
+                _ => break Some(Parsed::Bad),
+            }
+        };
+
+        match parsed {
+            Some(Parsed::Complete(req)) => {
+                let reply = portal::respond(&req, &mut settings, &mut head, &mut body);
+                info!(
+                    "setup: http {} {}, {} bytes back, saved {}",
+                    match req.method {
+                        http::Method::Get => "GET",
+                        http::Method::Post => "POST",
+                        http::Method::Other => "other",
+                    },
+                    req.path,
+                    reply.body,
+                    reply.saved
+                );
+                if reply.saved {
+                    // `respond` has changed this task's copy; the flash write is what makes it
+                    // outlast the reset that ends the setup.
+                    if !crate::store(&mut flash, &mut sectors, settings) {
+                        info!("setup: the change could not be written to flash");
+                    }
+                }
+                let _ = send_all(&mut socket, &head[..reply.head]).await
+                    && send_all(&mut socket, &body[..reply.body]).await;
+            }
+            Some(_) => {
+                let n = http::head(&mut head, http::Status::BadRequest, "text/plain", 0, None).unwrap_or(0);
+                let _ = send_all(&mut socket, &head[..n]).await;
+            }
+            None => {
+                let n = http::head(&mut head, http::Status::PayloadTooLarge, "text/plain", 0, None)
+                    .unwrap_or(0);
+                let _ = send_all(&mut socket, &head[..n]).await;
+            }
+        }
+        let _ = with_timeout(IO_TIMEOUT, socket.flush()).await;
+        socket.close();
+        let _ = with_timeout(IO_TIMEOUT, socket.flush()).await;
+        socket.abort();
     }
 }
 

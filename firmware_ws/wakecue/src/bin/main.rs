@@ -324,6 +324,9 @@ fn main() -> ! {
                         peripherals.FROM_CPU_INTR0,
                         i2c,
                         pad,
+                        flash,
+                        sectors,
+                        menu.settings,
                     );
                 }
                 if outcome.save {
