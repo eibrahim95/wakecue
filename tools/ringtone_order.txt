@@ -86,7 +86,6 @@ bouzouki
 hurdy-gurdy
 kantele
 tin-whistle
-balalaika
 hawaiian
 native-flute
 tuvan

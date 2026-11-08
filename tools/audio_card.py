@@ -77,6 +77,7 @@ def load_credits():
             for e in json.loads(path.read_text()):
                 entries[e["slug"]] = e
     order = [l.strip() for l in ORDER.read_text().splitlines() if l.strip() and not l.startswith("#")]
+    order = list(dict.fromkeys(order))            # a slug listed twice counts once, at its first place
     ranked = [entries[sl] for sl in order if sl in entries]
     rest = [e for sl, e in entries.items() if sl not in order]
     for e in rest:

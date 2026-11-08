@@ -93,5 +93,6 @@ Arthur Fields (1888-1953) | Public domain | https://commons.wikimedia.org/wiki/F
 | 0185 | A wound-up clock lullaby | stephan | Public domain | https://commons.wikimedia.org/wiki/File:Lullaby_wound_up_clock.ogg |
 | 0186 | Funny: duck | Gasybeaugosse2020 | CC0 | https://commons.wikimedia.org/wiki/File:Duck_in_Vezo.ogg |
 | 0187 | Bicycle bell | Soundscape_Leuphana | CC0 | https://commons.wikimedia.org/wiki/File:Bicycle-bell-1.wav |
+| 0188 | Russia: balalaika | Kevin MacLeod | CC BY 3.0 | https://commons.wikimedia.org/wiki/File:Padanaya_Blokov_(ISRC_USUAN1100606).mp3 |
 
 The ringtones come from Wikimedia Commons, and, through Openverse, from Freesound and Jamendo. Each is trimmed to 25 s (a very short one is repeated with gaps), level matched and converted to mono MP3, which counts as an adaptation: the licence of each applies to its copy. CC BY and CC BY-SA need the credit above; CC BY-SA also asks that the adapted copy carry the same licence. Ask IslamCan before selling a lamp with its adhan on the card.
