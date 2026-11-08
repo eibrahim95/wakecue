@@ -65,9 +65,11 @@ Each line has a row in `docs/build-log.html`.
 - Skipping the first-boot setup with Back or a touch, which writes the settings as they stand with
   the place marked as decided so the lamp does not ask again: written, nobody has said it was
   tried.
-- The five prayer times computed on the boot from the stored place
-  (`core::astro`): checked on the PC against all 18,260 times of the old Cairo
-  table; not yet compared on the glass.
+- The five prayer times on the face, computed on the boot from the stored place
+  (`core::astro`): checked on the PC against the Egyptian Survey Authority's published table
+  (760 times) and against AlAdhan for every method. On the glass, Fajr in Makkah has been compared
+  with Google and agrees; the other four prayers and the prayer strip's dots have not been said
+  to match yet.
 - The prayer strip on the face: drawn on every face, but nobody has checked
   that its times and dots match the switches.
 - The 30 s deadline on the network phase: written, never seen firing.
