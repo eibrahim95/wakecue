@@ -192,13 +192,15 @@ impl Face {
         // FONT_10X20 advances ten pixels a character, so the two never touch.
         let ampm_x = 14 + time.len() as i32 * 10 + 6;
         let _ = Text::new(meridiem(local), Point::new(ampm_x, 44), small).draw(frame);
-        let _ = Text::new(date, Point::new(236 - date.len() as i32 * 6, 15), small).draw(frame);
+        // The date belongs to the time, so it sits right under it; the corner above the right edge
+        // is left for status marks.
+        let _ = Text::new(date, Point::new(14, 58), small).draw(frame);
 
-        // The corner mark says the lamp is asleep. It is part of the frame, not a thing drawn and
-        // erased: every minute tick redraws the whole face anyway, so the tick keeps it, and only a
-        // wake by hand draws a face without it.
+        // The crescent in the status corner says the lamp is asleep. It is part of the frame, not
+        // a thing drawn and erased: every minute tick redraws the whole face anyway, so the tick
+        // keeps it, and only a wake by hand draws a face without it.
         if s.sleeping {
-            let _ = Text::new("z z z", Point::new(196, 28), small).draw(frame);
+            draw_moon(frame, 226, 8);
         }
 
         match s.next {
@@ -212,10 +214,10 @@ impl Face {
                 let at_text = format_hhmm12(local_at, &mut at_buf);
                 // A time shown at 10:43 reading "Fajr 4:44" has to say it is tomorrow's.
                 let mut x = 14;
-                let _ = Text::new("Next:", Point::new(x, 72), small).draw(frame);
+                let _ = Text::new("Next:", Point::new(x, 77), small).draw(frame);
                 x += 5 * 6 + 6;
                 if local_at.div_euclid(1440) != local.div_euclid(1440) {
-                    let _ = Text::new("tomorrow", Point::new(x, 72), small).draw(frame);
+                    let _ = Text::new("tomorrow", Point::new(x, 77), small).draw(frame);
                     x += 8 * 6 + 6;
                 }
                 // FONT_6X10 advances six pixels per character, so each word follows the last. The
@@ -225,21 +227,21 @@ impl Face {
                     NextUp::Prayer(_, prayer) => prayer.name(),
                     NextUp::Alarm(_) => "Alarm",
                 };
-                let _ = Text::new(name, Point::new(x, 72), small).draw(frame);
+                let _ = Text::new(name, Point::new(x, 77), small).draw(frame);
                 x += name.len() as i32 * 6 + 6;
-                let _ = Text::new(at_text, Point::new(x, 72), small).draw(frame);
+                let _ = Text::new(at_text, Point::new(x, 77), small).draw(frame);
                 x += at_text.len() as i32 * 6 + 6;
-                let _ = Text::new(meridiem(local_at), Point::new(x, 72), small).draw(frame);
+                let _ = Text::new(meridiem(local_at), Point::new(x, 77), small).draw(frame);
 
                 // How long is left, held against the right edge: a name plus `tomorrow` can use
                 // most of the line, so the countdown gets its own end rather than following on.
                 let mut cd_buf = [0u8; COUNTDOWN_LEN];
                 let cd = format_countdown(at - s.now_min, &mut cd_buf);
-                let _ = Text::new(cd, Point::new(236 - cd.len() as i32 * 6, 72), small).draw(frame);
+                let _ = Text::new(cd, Point::new(236 - cd.len() as i32 * 6, 77), small).draw(frame);
                 defmt::info!("panel: face drawn, {} next {} {} {}", time, name, at_text, cd);
             }
             None => {
-                let _ = Text::new("time not set", Point::new(14, 72), small).draw(frame);
+                let _ = Text::new("time not set", Point::new(14, 77), small).draw(frame);
                 defmt::info!("panel: face drawn, {} with no trusted time", time);
             }
         }
@@ -250,6 +252,9 @@ impl Face {
             let _ = Line::new(Point::new(10, 88), Point::new(240, 88))
                 .into_styled(rule)
                 .draw(frame);
+            // Where each column's ink starts and ends, so a divider can sit in the gap between two
+            // columns. The names differ in width ("Asr" against "Maghrib"), so the gaps do too.
+            let mut span = [(0i32, 0i32); 5];
             for (i, p) in Prayer::ALL.iter().enumerate() {
                 let cx = 24 + i as i32 * 48;
                 let name = p.name();
@@ -271,6 +276,14 @@ impl Face {
                     None => "--:--",
                 };
                 let _ = Text::new(t, Point::new(cx - t.len() as i32 * 3, 111), small).draw(frame);
+
+                let left = (cx - w / 2).min(cx - t.len() as i32 * 3);
+                let right = (cx + w / 2 + 3 + 5).max(cx + t.len() as i32 * 3);
+                span[i] = (left, right);
+            }
+            for pair in span.windows(2) {
+                let x = (pair[0].1 + pair[1].0) / 2;
+                let _ = Line::new(Point::new(x, 92), Point::new(x, 114)).into_styled(rule).draw(frame);
             }
         }
 
@@ -603,6 +616,17 @@ impl Face {
             defmt::info!("panel: could not be put to sleep");
         }
     }
+}
+
+/// A crescent moon about twelve pixels across with its top-left corner at (`x`, `y`): a black disc
+/// with a white one laid over it, shifted up and to the right, so the dark part opens that way.
+fn draw_moon<D: DrawTarget<Color = Color>>(frame: &mut D, x: i32, y: i32) {
+    let _ = Circle::new(Point::new(x, y), 12)
+        .into_styled(PrimitiveStyle::with_fill(Color::Black))
+        .draw(frame);
+    let _ = Circle::new(Point::new(x + 5, y - 2), 10)
+        .into_styled(PrimitiveStyle::with_fill(Color::White))
+        .draw(frame);
 }
 
 /// One row of a settings screen. The cursor row carries a `>`. A row that is being edited turns

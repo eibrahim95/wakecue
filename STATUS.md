@@ -69,6 +69,10 @@ Each line has a row in `docs/build-log.html`.
 
 ## Written but not yet seen
 
+- **The face, rearranged:** the date sits under the time, a crescent moon in the top-right corner
+  replaces "z z z" as the sleep mark (the corner is kept for the battery later), "Next:" moved down
+  5 px, and thin vertical lines separate the five prayers. Builds; not flashed, so the spacing is
+  unseen on the panel.
 - **One rule for every settings screen:** Up and Down only move between rows. OK on a value row
   activates it (the row turns black, the value sits between `<` and `>`), Up and Down then change
   it, and OK or Back deactivates it where it stands. OK on the Rings row flips it; OK on the boxed
