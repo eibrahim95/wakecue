@@ -125,6 +125,12 @@ Numbers or sightings only the board can give.
 - **Sleep current:** an estimate. The battery calculator assumes 1 mA. (move 3)
 - **Panel's hidden edge:** which six rows or columns the e-paper hides is
   unmeasured; every mark is kept six pixels in until then. (move 3)
+- **The MP3 board's place in the base:** the model now has the board at the back right with a 14 × 7 mm
+  window through the wall for the microSD card, and three deeper ballast cups instead of four.
+  Checked only against the model (no overlaps, watertight), never printed. Measure the real board and
+  its card socket with calipers first: the model assumes 21 × 21 mm, a socket about 5 mm above the lid,
+  and a socket the card can be reached on and removed from through that window. The tipping figures
+  on the hardware page are for four cups and have not been redone.
 - **The base:** never test-printed; the globe seat assumes an 8 cm neck. The
   button stem height (drawn as a 3.5 mm body with about 2 mm of stem) needs
   checking on the real switch before printing.

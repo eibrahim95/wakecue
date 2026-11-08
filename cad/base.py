@@ -15,6 +15,11 @@ button), so the row is on the face you are already looking at when you read the 
 The front ballast cups sit just behind that bar, so the bar is only as deep as the switch stack.
 The e-paper window is set high enough for the row to clear it.
 
+The MP3 board (DFPlayer Mini) sits at the back, flat on the lid on four posts, with its microSD slot
+pointing at the wall. A window through the wall lines up with the slot, so the card goes in and comes
+out from outside without opening the lamp. See the PLAYER_* numbers: the board's size is the
+datasheet's guess until it is measured on the real board.
+
 Print the body upside down (top face on the bed): every internal feature
 grows from the top plate or the walls, so it needs no supports. The button
 block lies on its side then, which prints cleanly as a plain bridge-free block.
@@ -79,7 +84,22 @@ BTN_CAP_LEN = BTN_FLANGE_T + FRONT_WALL + BTN_PROUD   # flange base to the cap t
 
 USB_W, USB_Z_TOP = 9.6, 13.5
 USB_PLUG_W, USB_PLUG_Z_TOP = 13.0, 15.5      # room for the plug's moulded grip
-WASHER_R = 12.5      # ballast cups, Ø25 × 8: lead sinkers or steel nuts
+WASHER_R = 12.5      # ballast cups, Ø25: lead sinkers or steel nuts
+CUP_H = 10.7         # round: three cups this deep hold what four 8 mm ones did (3 x 10.7 = 4 x 8)
+
+# the MP3 board (DFPlayer Mini HW-247A), lying flat, card slot toward the back wall. The size is a
+# design allowance, not a measurement: measure the board with calipers and set PLAYER_W / PLAYER_L.
+PLAYER_W, PLAYER_L = 21.0, 21.0         # across the pin rows, and along the card's way in
+PLAYER_CLR = 0.4                        # each side
+PLAYER_POST_H = 3.0                     # the board's underside above the lid (chip and solder)
+PLAYER_PCB_T = 1.6
+PLAYER_SOCKET_H = 2.0                   # microSD socket above the board
+CARD_WIN_W, CARD_WIN_H = 14.0, 7.0      # the window in the wall: the card is 11 x 1 mm, the rest is for a fingernail
+PLAYER_WIRE_SIDE = 3.0                  # room each side of the board for the wires soldered to its pads
+PLAYER_WIRE_BACK = 3.0                  # and behind it
+# where it sits: a turn about the body's axis, 0 = straight at the back; the board's slot edge is put at the
+# inner wall. Found by player_search.py, which checks the keep-out against everything else in the base.
+PLAYER_ANGLE = -30.0     # back-right, the card slot facing the wall straight on
 
 R_BOT, R_TOP = 80.0, 75.0   # round only
 if SHAPE == "round":
@@ -89,8 +109,9 @@ if SHAPE == "round":
               for a in (45, 135, 225, 315)]
     FEET = [(68 * math.cos(math.radians(a)), 68 * math.sin(math.radians(a)))
             for a in (22.5, 112.5, 202.5, 292.5)]
-    # the front pair sits behind the button bar, so it is pulled back from -45 to -40
-    CUPS = [(-25, 45), (25, 45), (-26, -40), (26, -40)]
+    # the front pair sits behind the button bar, so it is pulled back from -45 to -40. The back
+    # right cup is gone: the MP3 board sits there, and the three left are deeper to carry its share
+    CUPS = [(-25, 45), (-26, -40), (26, -40)]
 else:
     W, D, CR = 180.0, 170.0, 12.0
     FRONT_OUT = -D / 2
@@ -98,6 +119,7 @@ else:
     BOSSES = [(sx * 81, sy * 76) for sx in (-1, 1) for sy in (-1, 1)]
     FEET = [(sx * 75, sy * 62) for sx in (-1, 1) for sy in (-1, 1)]
     CUPS = [(sx * 55, sy * 55) for sx in (-1, 1) for sy in (-1, 1)]
+    CUP_H = 8.0
 
 FRONT_IN = FRONT_OUT + FRONT_WALL
 TOP_SCALE = (R_TOP / R_BOT) if SHAPE == "round" else 1.0
@@ -146,6 +168,63 @@ def inner_section(shrink=0.0):
     if SHAPE == "round":
         return flat_circle(R_BOT - WALL - shrink, FRONT_IN + shrink)
     return rounded_rect(W - 2 * WALL - 2 * shrink, D - 2 * WALL - 2 * shrink, CR - WALL)
+
+
+# --- the MP3 board ------------------------------------------------------------
+def inner_radius_at(z):
+    """The cavity's wall radius at height z (round body)."""
+    cav_scale = 1 - (1 - TOP_SCALE) * (H - TOP) / H
+    return (R_BOT - WALL) * (1 - (1 - cav_scale) * z / (H - TOP))
+
+
+def player_place(m, angle=None):
+    """Move a shape drawn with the board centred on the origin and its card slot toward +y to where
+    the board sits: turned about the axis by `angle`, slot edge a hair inside the wall."""
+    a = PLAYER_ANGLE if angle is None else angle
+    z_mid = LID_T + PLAYER_POST_H + PLAYER_PCB_T + PLAYER_SOCKET_H / 2
+    centre = inner_radius_at(z_mid) - PLAYER_L / 2 - 0.3
+    return m.translate((0, centre, 0)).rotate((0, 0, a))
+
+
+def player_keepout():
+    """Everything the board and its wires need: no other part may be in here."""
+    w = PLAYER_W + 2 * PLAYER_CLR + 2 * PLAYER_WIRE_SIDE
+    return box(-w / 2, w / 2, -PLAYER_L / 2 - PLAYER_CLR - PLAYER_WIRE_BACK, PLAYER_L / 2,
+               LID_T + 0.01, LID_T + PLAYER_POST_H + PLAYER_PCB_T + PLAYER_SOCKET_H + 4.0)
+
+
+def card_window():
+    """The opening through the wall, level with the card slot."""
+    z_mid = LID_T + PLAYER_POST_H + PLAYER_PCB_T + PLAYER_SOCKET_H / 2
+    return box(-CARD_WIN_W / 2, CARD_WIN_W / 2, PLAYER_L / 2 - 4.0, PLAYER_L / 2 + WALL + 8.0,
+               z_mid - CARD_WIN_H / 2, z_mid + CARD_WIN_H / 2)
+
+
+def player_cradle():
+    """On the lid: four posts the board rests on, and low walls that stop it sliding sideways and
+    back. It is open on the card side and left open at the sides in the middle, where the wires
+    come off the pads."""
+    half_w = PLAYER_W / 2 + PLAYER_CLR
+    half_l = PLAYER_L / 2 + PLAYER_CLR
+    post_r = 2.0
+    m = Manifold()
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            # a half millimetre clear of the walls: a post touching a wall along a line is not
+            # printable geometry (the lid stops being watertight)
+            m += cyl(post_r, LID_T, LID_T + PLAYER_POST_H,
+                     sx * (half_w - post_r - 0.5), sy * (half_l - post_r - 0.5))
+    wall_h = PLAYER_POST_H + PLAYER_PCB_T + 0.6
+    t = 1.2
+    # behind the board, the notch side: it takes the push of the card going in
+    m += box(-6.0, 6.0, -half_l - t, -half_l, LID_T, LID_T + wall_h)
+    for sx in (-1, 1):
+        # at each back corner, a short wall along the side
+        x0, x1 = (half_w, half_w + t) if sx > 0 else (-half_w - t, -half_w)
+        m += box(x0, x1, -half_l - t, -half_l + 7.0, LID_T, LID_T + wall_h)
+        # and a small tab at the front, by the wall, so the board cannot walk out sideways
+        m += box(x0, x1, half_l - 5.0, half_l, LID_T, LID_T + wall_h)
+    return m
 
 
 # --- body -------------------------------------------------------------------
@@ -217,6 +296,9 @@ def body():
     for s in (-1, 1):
         g = box(8.0, 10.0, BACK_IN - 31, BACK_IN + 1, 10.0, H)
         b += (g if s > 0 else g.mirror((1, 0, 0))) ^ clip
+    # the card window: through the back wall, level with the MP3 board's card slot
+    if SHAPE == "round":
+        b -= player_place(card_window())
     return b
 
 
@@ -238,13 +320,15 @@ def lid():
         m += tilt(box(x - 2, x + 2, FRONT_IN + CLR + 0.3, FRONT_IN + EPD_T - 0.3,
                       LID_T - 0.5, EPD_Z0))
     m += box(-6, 6, BACK_IN - 27, BACK_IN - 5, LID_T, 7.8)        # TP4056 platform
+    if SHAPE == "round":
+        m += player_place(player_cradle())                        # MP3 board, card slot to the wall
 
     def frame(x0, x1, y0, y1, h=2.0, t=1.2):
         return box(x0 - t, x1 + t, y0 - t, y1 + t, LID_T, LID_T + h) - box(x0, x1, y0, y1, 0, 99)
     m += frame(-62.5, -40.5, -39.0, 39.0)                         # 18650 holder
     m += frame(40.5, 63.5, -19.5, 19.5)                           # DS3231
-    for x, y in CUPS:                                             # ballast: 3 M12 washers each
-        m += cyl(WASHER_R + 1.2, LID_T, LID_T + 8, x, y) - cyl(WASHER_R, LID_T, 99, x, y)
+    for x, y in CUPS:                                             # ballast: 3 M12 washers each (4 in the deep cups)
+        m += cyl(WASHER_R + 1.2, LID_T, LID_T + CUP_H, x, y) - cyl(WASHER_R, LID_T, 99, x, y)
     for x, y in BOSSES:                                           # countersunk M3
         m -= cyl(1.7, -1, LID_T + 1, x, y)
         m -= Manifold.cylinder(1.8, 3.2, 1.7).translate((x, y, -0.01))
