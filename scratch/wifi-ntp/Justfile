@@ -30,8 +30,3 @@ set-time:
 # Read the defmt log while the chip is awake. The port disappears when it sleeps.
 monitor name="wifi-ntp":
     espflash monitor --chip esp32c3 -L defmt --elf target/riscv32imc-unknown-none-elf/release/{{name}}
-
-# Raise the lamp's own network (Wakecue-XXXX) and answer DHCP, with the log attached. Join it from
-# a phone: the log shows the station joining and then offer / ack lines.
-ap:
-    cargo run --release --bin ap

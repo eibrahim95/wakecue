@@ -17,6 +17,9 @@
 #![deny(clippy::large_stack_frames)]
 
 use defmt::info;
+// The crate now carries the radio for the phone setup, which brings `alloc` into every binary
+// and so needs a global allocator to link. This binary never allocates, so it never gets a heap.
+use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
 use esp_hal::delay::Delay;

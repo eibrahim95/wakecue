@@ -36,6 +36,11 @@ Each line has a row in `docs/build-log.html`.
 
 ## Written but not yet seen
 
+- The phone setup (top menu, fourth row, "Phone setup"): the lamp raises an open Wi-Fi network
+  named `Wakecue-XXXX` (the last two bytes of its MAC), takes 192.168.4.1 and answers DHCP on
+  port 67 from `core::dhcp` (12 PC tests). Back or a touch resets it into the normal program.
+  This is the move 1 trip-wire: not yet joined from a real phone, so nobody has seen an address
+  handed out. Nothing is served on top yet (no page, no DNS).
 - The five prayer times computed on the boot from the stored place
   (`core::astro`): checked on the PC against all 18,260 times of the old Cairo
   table; not yet compared on the glass.

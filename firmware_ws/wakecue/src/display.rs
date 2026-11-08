@@ -315,6 +315,27 @@ impl Face {
         self.push();
     }
 
+    /// The setup screen: the name of the network the lamp has raised, large enough to read from
+    /// the phone's list, and how to leave. Drawn once; the panel then keeps it with no power.
+    pub fn show_setup(&mut self, ssid: &str) {
+        if !self.ready {
+            return;
+        }
+        self.settle();
+        let frame = &mut self.frame;
+        frame.clear(Color::White);
+        let big = MonoTextStyle::new(&FONT_10X20, Color::Black);
+        let small = MonoTextStyle::new(&FONT_6X10, Color::Black);
+        let centre = |text: &str, glyph: i32| (250 - text.len() as i32 * glyph) / 2;
+        let _ = Text::new("Phone setup", Point::new(centre("Phone setup", 6), 20), small).draw(frame);
+        let _ = Text::new("Join the Wi-Fi network", Point::new(centre("Join the Wi-Fi network", 6), 46), small)
+            .draw(frame);
+        let _ = Text::new(ssid, Point::new(centre(ssid, 10), 74), big).draw(frame);
+        let _ = Text::new("Back or touch to leave", Point::new(centre("Back or touch to leave", 6), 104), small)
+            .draw(frame);
+        self.push();
+    }
+
     /// Draw the screen the menu is on. The clock face is [`Self::show_clock`]; everything else
     /// comes from the menu's own state, which is why this only has to know how to lay out rows.
     pub fn show_menu(&mut self, menu: &Menu) {
@@ -333,8 +354,8 @@ impl Face {
             // Nothing to draw: the caller shows the clock face for Home.
             Screen::Home => {}
             Screen::Top { cursor } => {
-                for (i, label) in ["Prayers", "My alarms", "Time zone"].into_iter().enumerate() {
-                    let y = 32 + i as i32 * 24;
+                for (i, label) in ["Prayers", "My alarms", "Time zone", "Phone setup"].into_iter().enumerate() {
+                    let y = 30 + i as i32 * 20;
                     if i as u8 == cursor {
                         let _ = Text::new(">", Point::new(12, y), small).draw(frame);
                     }

@@ -7,6 +7,8 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
+extern crate alloc;
+
 use defmt::{Format, Formatter, info};
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
@@ -29,6 +31,11 @@ use lamp_core::settings::{
 };
 use wakecue::clock;
 use wakecue::display::{Face, NextUp, PanelBus, Standby};
+
+// The phone setup needs a heap and the radio, which the other binaries in this crate do not
+// link, so it belongs to this binary and not to the library.
+#[path = "../setup.rs"]
+mod setup;
 
 /// How long an alarm nobody answers keeps flashing before the lamp gives up and goes back to
 /// sleep. A real ring should ring for longer than this; the panel is a stand-in, not a clock radio.
@@ -307,6 +314,18 @@ fn main() -> ! {
                     defmt::Debug2Format(&menu.screen),
                     outcome.save
                 );
+                if outcome.setup {
+                    // The owner asked for the phone setup. It is a different program, and it
+                    // never returns: Back or a touch resets the chip into this one again.
+                    setup::run(
+                        face,
+                        peripherals.WIFI,
+                        peripherals.TIMG0,
+                        peripherals.FROM_CPU_INTR0,
+                        i2c,
+                        pad,
+                    );
+                }
                 if outcome.save {
                     // The menu has already changed its own copy. This is the only place a block is
                     // written, so the minute tick can never wear the flash out; a failed write

@@ -66,7 +66,7 @@ const DST_RULES: [Dst; 4] = [Dst::None, Dst::Egypt, Dst::Europe, Dst::Us];
 pub enum Screen {
     /// The standby face: time, next alarm, prayer times. Ok opens the menu.
     Home,
-    /// 0 = Prayers, 1 = My alarms, 2 = Time zone.
+    /// 0 = Prayers, 1 = My alarms, 2 = Time zone, 3 = Phone setup.
     Top { cursor: u8 },
     Prayers { cursor: u8 },
     Alarms { cursor: u8 },
@@ -81,6 +81,9 @@ pub struct Outcome {
     pub redraw: bool,
     /// The settings changed and must be written to flash (and the next alarm re-programmed).
     pub save: bool,
+    /// The owner asked for the phone setup: the caller leaves the menu and raises the lamp's own
+    /// network, which is a different program from the one that reads buttons.
+    pub setup: bool,
 }
 
 pub struct Menu {
@@ -102,19 +105,23 @@ impl Menu {
     }
 
     pub fn press(&mut self, key: Key) -> Outcome {
-        let mut out = Outcome { redraw: true, save: false };
+        let mut out = Outcome { redraw: true, ..Outcome::default() };
         self.screen = match self.screen {
             Screen::Home => match key {
                 Key::Ok => Screen::Top { cursor: 0 },
                 _ => return Outcome::default(),
             },
             Screen::Top { cursor } => match key {
-                Key::Up | Key::Down => Screen::Top { cursor: step(cursor, 3, key) },
+                Key::Up | Key::Down => Screen::Top { cursor: step(cursor, 4, key) },
                 Key::Back => Screen::Home,
                 // Back is the way out of the menu, so there is no Exit row to walk to.
                 Key::Ok => match cursor {
                     0 => Screen::Prayers { cursor: 0 },
                     1 => Screen::Alarms { cursor: 0 },
+                    3 => {
+                        out.setup = true;
+                        Screen::Top { cursor }
+                    }
                     _ => Screen::Zone {
                         field: 0,
                         minutes: self.settings.utc_offset_min,
@@ -221,7 +228,7 @@ impl Menu {
 
     fn press_move(&mut self, slot: u8, field: u8, draft: UserAlarm, key: Key) -> Outcome {
         self.screen = Screen::Edit { slot, field: step(field, FIELDS.len() as u8, key), draft };
-        Outcome { redraw: true, save: false }
+        Outcome { redraw: true, ..Outcome::default() }
     }
 }
 
@@ -270,13 +277,13 @@ mod tests {
         let mut m = menu();
         m.press(Key::Ok);
         m.press(Key::Up);
-        assert_eq!(m.screen, Screen::Top { cursor: 2 });
+        assert_eq!(m.screen, Screen::Top { cursor: 3 });
         m.press(Key::Down);
         assert_eq!(m.screen, Screen::Top { cursor: 0 });
     }
 
     #[test]
-    fn the_top_screen_is_three_lists_and_back_is_the_way_out() {
+    fn the_top_screen_is_four_rows_and_back_is_the_way_out() {
         let mut m = menu();
         m.press(Key::Ok);
         m.press(Key::Down);
@@ -367,7 +374,8 @@ mod tests {
 
     fn open_zone(m: &mut Menu) {
         m.press(Key::Ok);
-        m.press(Key::Up); // wraps to Time zone
+        m.press(Key::Down);
+        m.press(Key::Down); // Time zone
         m.press(Key::Ok);
     }
 
@@ -476,5 +484,23 @@ mod tests {
             let (h, m) = offset_parts(min);
             assert_eq!(offset_of(h, m), min);
         }
+    }
+
+    #[test]
+    fn the_last_row_asks_for_the_phone_setup_and_nothing_else_does() {
+        let mut m = menu();
+        m.press(Key::Ok);
+        m.press(Key::Up); // wraps to Phone setup
+        assert_eq!(m.screen, Screen::Top { cursor: 3 });
+        let o = m.press(Key::Ok);
+        assert!(o.setup && !o.save);
+        // The other rows open their screens and never ask.
+        for (downs, _) in [(0, ()), (1, ()), (2, ())] {
+            let mut m = menu();
+            m.press(Key::Ok);
+            for _ in 0..downs { m.press(Key::Down); }
+            assert!(!m.press(Key::Ok).setup);
+        }
+        assert!(!Outcome::default().setup);
     }
 }
