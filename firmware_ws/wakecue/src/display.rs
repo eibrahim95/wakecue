@@ -17,9 +17,9 @@ use lamp_core::calendar::{
     COUNTDOWN_LEN, DATE_LEN, HHMM12_LEN, OFFSET_LEN, Zone, format_countdown, format_date,
     format_hhmm12, format_offset, meridiem,
 };
-use lamp_core::menu::{Field, Menu, Screen, day_name, offset_parts};
+use lamp_core::menu::{Field, Menu, Screen, VOLUME_LEN, day_name, format_volume, offset_parts};
 use lamp_core::schedule::Prayer;
-use lamp_core::settings::MAX_USER_ALARMS;
+use lamp_core::settings::{MAX_USER_ALARMS, MAX_VOLUME};
 use weact_studio_epd::graphics::{Display213BlackWhite, DisplayRotation};
 use weact_studio_epd::{Color, WeActStudio213BlackWhiteDriver};
 
@@ -372,7 +372,7 @@ impl Face {
             // Nothing to draw: the caller shows the clock face for Home.
             Screen::Home => {}
             Screen::Top { cursor } => {
-                for (i, label) in ["Prayers", "My alarms", "Time zone", "Phone setup"].into_iter().enumerate() {
+                for (i, label) in ["Prayers", "My alarms", "Volume", "Time zone", "Phone setup"].into_iter().enumerate() {
                     let y = 30 + i as i32 * 20;
                     if i as u8 == cursor {
                         let _ = Text::new(">", Point::new(12, y), small).draw(frame);
@@ -388,8 +388,49 @@ impl Face {
                     }
                     let _ = Text::new(p.name(), Point::new(28, y), small).draw(frame);
                     let on = if menu.settings.prayer_on(p) { "on" } else { "off" };
-                    let _ = Text::new(on, Point::new(150, y), small).draw(frame);
+                    let _ = Text::new(on, Point::new(110, y), small).draw(frame);
+                    // Its own level, or the word that says it follows the general one.
+                    let own = menu.settings.prayer_volume[i];
+                    let mut v_buf = [0u8; VOLUME_LEN];
+                    let v = if own == 0 { "default" } else { format_volume(own, 0, &mut v_buf) };
+                    let _ = Text::new(v, Point::new(160, y), small).draw(frame);
                 }
+            }
+            Screen::PrayerEdit { prayer, field, on, volume } => {
+                let _ = Text::new(Prayer::ALL[prayer as usize].name(), Point::new(14, 18), small)
+                    .draw(frame);
+                let mut v_buf = [0u8; VOLUME_LEN];
+                let rows = [
+                    ("Rings", if on { "on" } else { "off" }),
+                    ("Volume", format_volume(volume, menu.settings.volume, &mut v_buf)),
+                    ("Save", ""),
+                ];
+                for (i, (label, value)) in rows.into_iter().enumerate() {
+                    let y = 44 + i as i32 * 22;
+                    if i as u8 == field {
+                        let _ = Text::new(">", Point::new(12, y), small).draw(frame);
+                    }
+                    let _ = Text::new(label, Point::new(28, y), small).draw(frame);
+                    let _ = Text::new(value, Point::new(96, y), small).draw(frame);
+                }
+            }
+            Screen::Volume { level } => {
+                let _ = Text::new("Volume", Point::new(14, 18), small).draw(frame);
+                let mut v_buf = [0u8; VOLUME_LEN];
+                let num = format_volume(level, 0, &mut v_buf);
+                let big = MonoTextStyle::new(&FONT_10X20, Color::Black);
+                let _ = Text::new(num, Point::new(14, 52), big).draw(frame);
+                let _ = Text::new("of 30", Point::new(14 + num.len() as i32 * 10 + 8, 52), small).draw(frame);
+                // A bar from empty to the player's top level, so a step reads as a step.
+                let _ = Rectangle::new(Point::new(14, 66), Size::new(222, 14))
+                    .into_styled(PrimitiveStyle::with_stroke(Color::Black, 1))
+                    .draw(frame);
+                let fill = 220 * level as u32 / MAX_VOLUME as u32;
+                let _ = Rectangle::new(Point::new(15, 67), Size::new(fill, 12))
+                    .into_styled(PrimitiveStyle::with_fill(Color::Black))
+                    .draw(frame);
+                let _ = Text::new("Up Down: change   Ok: save   Back: cancel", Point::new(14, 104), small)
+                    .draw(frame);
             }
             Screen::Alarms { cursor } => {
                 // Five rows fit, so the list scrolls under the cursor.
@@ -471,6 +512,7 @@ impl Face {
                 .draw(frame);
                 let mut hour = [0u8; 2];
                 let mut minute = [0u8; 2];
+                let mut v_buf = [0u8; VOLUME_LEN];
                 let h12 = match (draft.minute / 60) % 12 {
                     0 => 12,
                     h => h,
@@ -479,11 +521,12 @@ impl Face {
                     ("Hour", two(h12 as u32, &mut hour)),
                     ("Minute", two((draft.minute % 60) as u32, &mut minute)),
                     ("Days", day_name(draft.days)),
+                    ("Volume", format_volume(draft.volume, menu.settings.volume, &mut v_buf)),
                     ("Save", ""),
                     ("Delete", ""),
                 ];
                 for (i, (label, value)) in rows.into_iter().enumerate() {
-                    let y = 36 + i as i32 * 18;
+                    let y = 34 + i as i32 * 16;
                     if i as u8 == field {
                         let _ = Text::new(">", Point::new(12, y), small).draw(frame);
                     }

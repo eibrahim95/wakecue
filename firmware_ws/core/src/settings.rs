@@ -36,7 +36,7 @@
 //!   140     1  prayers that ring, a bit per prayer
 //!   141     5  minutes to shift each prayer by
 //!   146     1  light ramp before an alarm, minutes
-//!   147     1  adhan volume
+//!   147     1  general volume, 0 to 30 on the player's own scale
 //!   148     1  adhan fade-in, seconds
 //!   149    40  eight alarms, 5 bytes each
 //!   189     1  brightness cap, percent
@@ -45,7 +45,10 @@
 //!   192     1  the lamp is on
 //!   193     1  snooze flags: 1 = snoozing
 //!   194     2  snooze until, minutes after midnight
-//!   196    16  reserved, zero
+//!   196     1  calculation method id
+//!   197     5  volume of each prayer, 0 = use the general volume, 1 to 30 its own
+//!   202     8  volume of each alarm, same meaning
+//!   210     2  reserved, zero
 //! ```
 use crate::calendar::{Zone, weekday};
 use crate::schedule::{Action, Prayer, Rule, When, ALL_DAYS};
@@ -75,6 +78,9 @@ const VERSION: u8 = 1;
 pub const SUN_TO_THU: u8 = 0b0001_1111;
 pub const FRI_SAT: u8 = 0b0110_0000;
 pub const FRIDAY: u8 = 0b0010_0000;
+
+/// The player's volume runs 0 to 30.
+pub const MAX_VOLUME: u8 = 30;
 
 /// The tones an alarm can pick, by the byte stored with it. Index 0 is the adhan.
 pub const SOUNDS: [&str; 3] = ["adhan", "chime", "beep"];
@@ -111,8 +117,10 @@ mod po {
     pub const SNOOZE_FLAGS: usize = 181;
     pub const SNOOZE_MIN: usize = 182;
     pub const METHOD: usize = 184;
-    pub const RESERVED: usize = 185;
-    pub const RESERVED_LEN: usize = 15;
+    pub const PRAYER_VOLUME: usize = 185;
+    pub const ALARM_VOLUME: usize = 190;
+    pub const RESERVED: usize = 198;
+    pub const RESERVED_LEN: usize = 2;
 
     const _: () = assert!(RESERVED + RESERVED_LEN == super::PAYLOAD_LEN);
 }
@@ -250,11 +258,13 @@ pub struct UserAlarm {
     /// Index into [`SOUNDS`]. No screen sets this yet; it is carried so the block does not have to
     /// change when the ring picks a tone.
     pub sound: u8,
+    /// This alarm's own volume, 1 to [`MAX_VOLUME`], or 0 for "Default": the general volume.
+    pub volume: u8,
 }
 
 impl UserAlarm {
     pub const EMPTY: UserAlarm =
-        UserAlarm { used: false, enabled: false, days: ALL_DAYS, minute: 7 * 60, sound: 0 };
+        UserAlarm { used: false, enabled: false, days: ALL_DAYS, minute: 7 * 60, sound: 0, volume: 0 };
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -277,7 +287,10 @@ pub struct Settings {
     /// Minutes each prayer is shifted by, so the lamp can be matched to the local mosque.
     pub offset_min: [i8; 5],
     pub ramp_min: u8,
-    pub adhan_volume: u8,
+    /// The general volume: what every prayer and alarm uses unless it has a level of its own.
+    pub volume: u8,
+    /// Each prayer's own volume in table order, 1 to [`MAX_VOLUME`], or 0 for "Default".
+    pub prayer_volume: [u8; 5],
     pub adhan_fade_in_s: u8,
     pub alarms: [UserAlarm; MAX_USER_ALARMS],
     pub brightness_max: u8,
@@ -314,7 +327,8 @@ impl Default for Settings {
             prayers_on: 1,
             offset_min: [0; 5],
             ramp_min: 15,
-            adhan_volume: 22,
+            volume: 22,
+            prayer_volume: [0; 5],
             adhan_fade_in_s: 30,
             alarms: [UserAlarm::EMPTY; MAX_USER_ALARMS],
             brightness_max: 60,
@@ -412,6 +426,12 @@ impl Settings {
         None
     }
 
+    /// The level to play at for something with its own volume `own`: that level, or the general
+    /// volume when `own` is 0 ("Default"). Never above the player's top level.
+    pub fn volume_for(&self, own: u8) -> u8 {
+        (if own == 0 { self.volume } else { own }).min(MAX_VOLUME)
+    }
+
     /// Fills `out` with the rules the schedule should run and returns how many.
     ///
     /// Every event that rings is built the same way: the light comes up over `ramp_min` minutes and
@@ -443,7 +463,7 @@ impl Settings {
                 when: When::Prayer(p, shift),
                 action: Action::Play {
                     track: p.index() as u16 + 1,
-                    volume: self.adhan_volume,
+                    volume: self.volume_for(self.prayer_volume[p.index()]),
                     fade_in_s: self.adhan_fade_in_s as u16,
                 },
             });
@@ -459,7 +479,7 @@ impl Settings {
             push(Rule {
                 days: a.days,
                 when: When::Local(a.minute),
-                action: Action::Alarm { sound: a.sound },
+                action: Action::Alarm { sound: a.sound, volume: self.volume_for(a.volume) },
             });
         }
         n
@@ -502,7 +522,8 @@ impl Stored {
             p[po::OFFSETS + i] = *v as u8;
         }
         p[po::RAMP] = s.ramp_min;
-        p[po::VOLUME] = s.adhan_volume;
+        p[po::VOLUME] = s.volume;
+        p[po::PRAYER_VOLUME..po::PRAYER_VOLUME + 5].copy_from_slice(&s.prayer_volume);
         p[po::FADE] = s.adhan_fade_in_s;
         for (i, a) in s.alarms.iter().enumerate() {
             let at = po::ALARMS + i * po::ALARM_STRIDE;
@@ -510,6 +531,7 @@ impl Stored {
             p[at + 1] = a.days;
             p[at + 2..at + 4].copy_from_slice(&a.minute.to_le_bytes());
             p[at + 4] = a.sound;
+            p[po::ALARM_VOLUME + i] = a.volume;
         }
         p[po::BRIGHT_MAX] = s.brightness_max;
         p[po::BRIGHT_NIGHT] = s.brightness_night;
@@ -594,12 +616,23 @@ impl Stored {
         }
 
         let ramp_min = p[po::RAMP];
-        let adhan_volume = p[po::VOLUME];
+        let volume = p[po::VOLUME];
         let adhan_fade_in_s = p[po::FADE];
-        if ramp_min > 120 || adhan_volume > 100 || !(0..=120).contains(&adhan_fade_in_s) {
+        if ramp_min > 120 || volume > 100 || !(0..=120).contains(&adhan_fade_in_s) {
             return None;
         }
 
+        // A volume of its own is 1 to 30. Zero is "Default", and so is 0xFF, which is what a block
+        // from before these fields wrote there; anything between is clamped, not a reason to throw
+        // the whole block away.
+        let own_volume = |v: u8| match v {
+            0 | 0xFF => 0,
+            v => v.min(MAX_VOLUME),
+        };
+        let mut prayer_volume = [0u8; 5];
+        for (i, v) in prayer_volume.iter_mut().enumerate() {
+            *v = own_volume(p[po::PRAYER_VOLUME + i]);
+        }
         let mut alarms = [UserAlarm::EMPTY; MAX_USER_ALARMS];
         for (i, a) in alarms.iter_mut().enumerate() {
             let at = po::ALARMS + i * po::ALARM_STRIDE;
@@ -618,6 +651,7 @@ impl Stored {
                 days: p[at + 1],
                 minute,
                 sound: p[at + 4],
+                volume: own_volume(p[po::ALARM_VOLUME + i]),
             };
         }
 
@@ -657,7 +691,8 @@ impl Stored {
                 prayers_on,
                 offset_min,
                 ramp_min,
-                adhan_volume,
+                volume,
+                prayer_volume,
                 adhan_fade_in_s,
                 alarms,
                 brightness_max,
@@ -778,7 +813,7 @@ mod tests {
 
     #[test]
     fn default_is_fajr_only_with_ramp_and_sound() {
-        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm { sound: 0 } }; MAX_RULES];
+        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm { sound: 0, volume: 22 } }; MAX_RULES];
         let n = Settings::default().rules(&mut out);
         assert_eq!(n, 2);
         assert!(matches!(out[0].action, Action::Sunrise { ramp_min: 15 }));
@@ -793,7 +828,7 @@ mod tests {
         // about a prayer's rules should depend on which prayer it is.
         let mut s = Settings { prayers_on: 0b1_1111, adhan_fade_in_s: 45, ..Settings::default() };
         s.ramp_min = 20;
-        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm { sound: 0 } }; MAX_RULES];
+        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm { sound: 0, volume: 22 } }; MAX_RULES];
         assert_eq!(s.rules(&mut out), 10);
         // Dhuhr is the second prayer, so its ramp is rule 2 and its sound rule 3.
         assert!(matches!(out[2].action, Action::Sunrise { ramp_min: 20 }));
@@ -814,15 +849,16 @@ mod tests {
             days: ALL_DAYS,
             minute: 6 * 60 + 30,
             sound: 2,
+            volume: 0,
         };
-        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm { sound: 0 } }; MAX_RULES];
+        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm { sound: 0, volume: 22 } }; MAX_RULES];
         // Fajr is on by default, so its two rules come first, then the alarm's two.
         assert_eq!(s.rules(&mut out), 4);
         assert_eq!(out[2].when, When::Local(6 * 60 + 30));
         assert_eq!(out[2].days, ALL_DAYS);
         assert!(matches!(out[2].action, Action::Sunrise { ramp_min: 15 }));
         assert_eq!(out[3].when, When::Local(6 * 60 + 30));
-        assert!(matches!(out[3].action, Action::Alarm { sound: 2 }));
+        assert!(matches!(out[3].action, Action::Alarm { sound: 2, volume: 22 }));
     }
 
     #[test]
@@ -831,13 +867,13 @@ mod tests {
         for a in s.alarms.iter_mut() {
             *a = UserAlarm { used: true, enabled: true, days: SUN_TO_THU, ..UserAlarm::EMPTY };
         }
-        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm { sound: 0 } }; MAX_RULES];
+        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm { sound: 0, volume: 22 } }; MAX_RULES];
         assert_eq!(s.rules(&mut out), MAX_RULES);
         // Two rules per prayer: Isha's sound is the tenth, so track 5.
         assert!(matches!(out[9].action, Action::Play { track: 5, .. }));
         // Then the first alarm's ramp and its sound.
         assert!(matches!(out[10].action, Action::Sunrise { .. }));
-        assert!(matches!(out[11].action, Action::Alarm { sound: 0 }));
+        assert!(matches!(out[11].action, Action::Alarm { sound: 0, volume: 22 }));
     }
 
     #[test]
@@ -847,17 +883,17 @@ mod tests {
         let mut s = Settings::default();
         s.ramp_min = 0;
         s.alarms[0] = UserAlarm { used: true, enabled: true, days: ALL_DAYS, minute: 400, ..UserAlarm::EMPTY };
-        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm { sound: 0 } }; MAX_RULES];
+        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm { sound: 0, volume: 22 } }; MAX_RULES];
         assert_eq!(s.rules(&mut out), 2);
         assert!(matches!(out[0].action, Action::Play { track: 1, .. }));
-        assert!(matches!(out[1].action, Action::Alarm { sound: 0 }));
+        assert!(matches!(out[1].action, Action::Alarm { sound: 0, volume: 22 }));
     }
 
     #[test]
     fn disabled_and_unused_alarms_make_no_rules() {
         let mut s = Settings::default();
         s.alarms[0] = UserAlarm { used: true, enabled: false, minute: 400, ..UserAlarm::EMPTY };
-        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm { sound: 0 } }; MAX_RULES];
+        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm { sound: 0, volume: 22 } }; MAX_RULES];
         assert_eq!(s.rules(&mut out), 2);
     }
 
@@ -936,7 +972,7 @@ mod tests {
         let mut s = Settings::default();
         s.offset_min[Prayer::Fajr.index()] = -30;
         s.ramp_min = 20;
-        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm { sound: 0 } }; MAX_RULES];
+        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm { sound: 0, volume: 22 } }; MAX_RULES];
         assert_eq!(s.rules(&mut out), 2);
         assert!(matches!(out[0].when, When::Prayer(Prayer::Fajr, -30)));
         assert!(matches!(out[0].action, Action::Sunrise { ramp_min: 20 }));
@@ -952,6 +988,7 @@ mod tests {
             days: FRI_SAT,
             minute: 1439,
             sound: 2,
+            volume: 0,
         };
         s.set_ssid("Home").then_some(()).unwrap();
         s.set_psk("hunter22").then_some(()).unwrap();
@@ -990,10 +1027,11 @@ mod tests {
         s.high_lat = HighLat::Seventh;
         s.offset_min = [1, -1, 2, -2, 0];
         s.ramp_min = 20;
-        s.adhan_volume = 44;
+        s.volume = 25;
+        s.prayer_volume = [0, 5, 0, 30, 1];
         s.adhan_fade_in_s = 60;
         s.alarms[0] =
-            UserAlarm { used: true, enabled: true, days: FRI_SAT, minute: 90, sound: 2 };
+            UserAlarm { used: true, enabled: true, days: FRI_SAT, minute: 90, sound: 2, volume: 7 };
         s.brightness_max = 70;
         s.brightness_night = 6;
         s.clock_24h = true;
@@ -1017,7 +1055,7 @@ mod tests {
         assert_eq!(b[138], 2);
         assert_eq!(b[139], 2);
         assert_eq!(b[141..146], [1, 0xFF, 2, 0xFE, 0]);
-        assert_eq!((b[146], b[147], b[148]), (20, 44, 60));
+        assert_eq!((b[146], b[147], b[148]), (20, 25, 60));
         assert_eq!(b[149], 0b11);
         assert_eq!(b[150], FRI_SAT);
         assert_eq!(b[151..153], 90u16.to_le_bytes());
@@ -1025,7 +1063,10 @@ mod tests {
         assert_eq!((b[189], b[190], b[191], b[192]), (70, 6, 1, 1));
         assert_eq!(b[193], 1);
         assert_eq!(b[194..196], 390u16.to_le_bytes());
-        assert!(b[196..212].iter().all(|&x| x == 0)); // reserved
+        assert_eq!(b[197..202], [0, 5, 0, 30, 1]); // the prayers' own volumes
+        assert_eq!(b[202], 7); // the first alarm's
+        assert!(b[203..210].iter().all(|&x| x == 0)); // the other seven are Default
+        assert!(b[210..212].iter().all(|&x| x == 0)); // reserved
     }
 
     #[test]
@@ -1119,5 +1160,87 @@ mod tests {
         assert_eq!(m.isha_angle_d10, None);
         assert_eq!(m.isha_minutes, 90);
         assert_eq!(m.asr_shadow, 2);
+    }
+
+    fn rules_of(s: &Settings) -> ([Rule; MAX_RULES], usize) {
+        let mut out = [Rule { days: 0, when: When::Local(0), action: Action::Alarm { sound: 0, volume: 0 } }; MAX_RULES];
+        let n = s.rules(&mut out);
+        (out, n)
+    }
+
+    /// The volumes the rules carry, prayers' sounds first and alarms second, in rule order.
+    fn volumes(s: &Settings) -> ([u8; 16], usize, [u8; 16], usize) {
+        let (out, n) = rules_of(s);
+        let (mut plays, mut np, mut alarms, mut na) = ([0u8; 16], 0, [0u8; 16], 0);
+        for r in &out[..n] {
+            match r.action {
+                Action::Play { volume, .. } => {
+                    plays[np] = volume;
+                    np += 1;
+                }
+                Action::Alarm { volume, .. } => {
+                    alarms[na] = volume;
+                    na += 1;
+                }
+                _ => {}
+            }
+        }
+        (plays, np, alarms, na)
+    }
+
+    #[test]
+    fn default_follows_the_general_volume_and_an_own_level_wins() {
+        let mut s = Settings::default();
+        s.prayers_on = 0b1_1111;
+        s.volume = 12;
+        s.prayer_volume = [0, 30, 0, 5, 0];
+        s.alarms[0] = UserAlarm { used: true, enabled: true, volume: 0, ..UserAlarm::EMPTY };
+        s.alarms[1] = UserAlarm { used: true, enabled: true, volume: 9, ..UserAlarm::EMPTY };
+        let (plays, np, alarms, na) = volumes(&s);
+        assert_eq!(&plays[..np], [12, 30, 12, 5, 12]);
+        assert_eq!(&alarms[..na], [12, 9]);
+        // Moving the general level moves everything left on Default and nothing else.
+        s.volume = 20;
+        let (plays, np, alarms, na) = volumes(&s);
+        assert_eq!(&plays[..np], [20, 30, 20, 5, 20]);
+        assert_eq!(&alarms[..na], [20, 9]);
+    }
+
+    #[test]
+    fn nothing_is_played_above_the_players_top_level() {
+        let mut s = Settings::default();
+        s.volume = 90; // old blocks allowed up to 100
+        assert_eq!(s.volume_for(0), MAX_VOLUME);
+        assert_eq!(s.volume_for(200), MAX_VOLUME);
+        assert_eq!(s.volume_for(7), 7);
+    }
+
+    #[test]
+    fn the_volumes_survive_a_write_and_a_read() {
+        let mut s = Settings::default();
+        s.volume = 17;
+        s.prayer_volume = [3, 0, 30, 0, 1];
+        s.alarms[5] = UserAlarm { used: true, enabled: true, volume: 11, ..UserAlarm::EMPTY };
+        let back = Stored::decode(&Stored { seq: 2, settings: s }.encode()).unwrap().settings;
+        assert_eq!(back.volume, 17);
+        assert_eq!(back.prayer_volume, [3, 0, 30, 0, 1]);
+        assert_eq!(back.alarms[5].volume, 11);
+        assert_eq!(back.alarms[0].volume, 0);
+    }
+
+    #[test]
+    fn a_block_from_before_the_volumes_loads_with_every_event_on_default() {
+        // Blocks written by older builds hold zeros there, and a blank sector holds 0xFF: both
+        // mean "Default". A stray value is clamped, and none of it costs the owner the block.
+        let mut b = Stored { seq: 1, settings: sample() }.encode();
+        for i in 0..13 {
+            b[HEADER_LEN + po::PRAYER_VOLUME + i] = 0xFF;
+        }
+        b[HEADER_LEN + po::PRAYER_VOLUME] = 99;
+        let crc = crc32(&b[HEADER_LEN..]);
+        b[8..12].copy_from_slice(&crc.to_le_bytes());
+        let s = Stored::decode(&b).unwrap().settings;
+        assert_eq!(s.prayer_volume, [MAX_VOLUME, 0, 0, 0, 0]);
+        assert!(s.alarms.iter().all(|a| a.volume == 0));
     }
 }

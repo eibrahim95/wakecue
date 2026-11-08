@@ -4,7 +4,7 @@
 //! in the block on the lamp. That is what makes "change the password and put it back" safe.
 use lamp_core::schedule::{Prayer, ALL_DAYS};
 use lamp_core::settings::{
-    Dst, HighLat, Isha, Settings, Setup, UserAlarm, FRI_SAT, FRIDAY, MAX_USER_ALARMS, SOUNDS,
+    Dst, HighLat, Isha, Settings, Setup, UserAlarm, FRI_SAT, FRIDAY, MAX_USER_ALARMS, MAX_VOLUME, SOUNDS,
     SUN_TO_THU,
 };
 
@@ -27,13 +27,16 @@ const HEADER: &str = "\
 #   prayers       all | none | a list like fajr,dhuhr
 #   offset_x      minutes to shift a prayer, so the lamp matches the local mosque
 #   ramp          minutes the light takes to come up before any alarm
-#   volume, fade  adhan volume in percent, and seconds it takes to reach it
+#   volume        the general volume, 0 to 30 on the player's own scale
+#   volume_X      one prayer's own volume (volume_fajr ...): default, or 1 to 30
+#   fade          seconds the adhan takes to reach its volume
 #   brightness    percent at full, and night percent
 #   clock         12 or 24
 #   lamp          on | off
 #   snooze        off, or a time like 06:30
-#   alarmN        empty, or `06:30 * on adhan` (time, days, on/off, tone)
+#   alarmN        empty, or `06:30 * on adhan default` (time, days, on/off, tone, volume)
 #                 days: * | sun-thu | fri-sat | fri | sun,mon,...
+#                 volume: default (the general volume) or 1 to 30; left out means default
 #   setup         wifi, place, clock: which first-boot questions are answered
 \n";
 
@@ -133,7 +136,12 @@ fn apply_one(s: &mut Settings, l: &Line) -> Result<(), String> {
         "offset_maghrib" => s.offset_min[3] = i8_of(l, 120)?,
         "offset_isha" => s.offset_min[4] = i8_of(l, 120)?,
         "ramp" => s.ramp_min = u8_of(l, 120)?,
-        "volume" => s.adhan_volume = u8_of(l, 100)?,
+        "volume" => s.volume = u8_of(l, MAX_VOLUME)?,
+        "volume_fajr" => s.prayer_volume[0] = own_volume(l, &l.value)?,
+        "volume_dhuhr" => s.prayer_volume[1] = own_volume(l, &l.value)?,
+        "volume_asr" => s.prayer_volume[2] = own_volume(l, &l.value)?,
+        "volume_maghrib" => s.prayer_volume[3] = own_volume(l, &l.value)?,
+        "volume_isha" => s.prayer_volume[4] = own_volume(l, &l.value)?,
         "fade" => s.adhan_fade_in_s = u8_of(l, 120)?,
         "brightness" => s.brightness_max = u8_of(l, 100)?,
         "night" => s.brightness_night = u8_of(l, 100)?,
@@ -180,6 +188,7 @@ fn alarm(s: &mut Settings, l: &Line) -> Result<(), String> {
     let days = parts.next().ok_or_else(|| at(l, "the days next: * , sun-thu, fri-sat, fri, or a list"))?;
     let state = parts.next().unwrap_or("on").to_ascii_lowercase();
     let tone = parts.next().unwrap_or("adhan").to_ascii_lowercase();
+    let volume = own_volume(l, parts.next().unwrap_or("default"))?;
     let minute = clock_minutes_str(l, time)?;
     let days = days_of(l, days)?;
     let enabled = match state.as_str() {
@@ -191,8 +200,23 @@ fn alarm(s: &mut Settings, l: &Line) -> Result<(), String> {
         .iter()
         .position(|s| *s == tone)
         .ok_or_else(|| at(l, "the tone is adhan, chime or beep"))?;
-    s.alarms[slot - 1] = UserAlarm { used: true, enabled, days, minute, sound: sound as u8 };
+    s.alarms[slot - 1] = UserAlarm { used: true, enabled, days, minute, sound: sound as u8, volume };
     Ok(())
+}
+
+/// A volume of its own: `default` (stored as 0, so the general volume applies) or 1 to 30.
+fn own_volume(l: &Line, word: &str) -> Result<u8, String> {
+    if word.eq_ignore_ascii_case("default") {
+        return Ok(0);
+    }
+    match word.parse::<u8>() {
+        Ok(v) if (1..=MAX_VOLUME).contains(&v) => Ok(v),
+        _ => Err(at(l, "default, or a volume from 1 to 30")),
+    }
+}
+
+fn volume_text(own: u8) -> String {
+    if own == 0 { "default".into() } else { own.to_string() }
 }
 
 /// The whole file, with every value spelled out, so it can be edited and handed back.
@@ -231,7 +255,10 @@ pub fn dump(s: &Settings) -> String {
         o.push_str(&format!("offset_{} = {}\n", p.name().to_ascii_lowercase(), s.offset_min[i]));
     }
     o.push_str(&format!("ramp = {}\n", s.ramp_min));
-    o.push_str(&format!("volume = {}\n", s.adhan_volume));
+    o.push_str(&format!("volume = {}\n", s.volume));
+    for (i, p) in Prayer::ALL.iter().enumerate() {
+        o.push_str(&format!("volume_{} = {}\n", p.name().to_ascii_lowercase(), volume_text(s.prayer_volume[i])));
+    }
     o.push_str(&format!("fade = {}\n", s.adhan_fade_in_s));
     o.push_str(&format!("brightness = {}\n", s.brightness_max));
     o.push_str(&format!("night = {}\n\n", s.brightness_night));
@@ -255,12 +282,13 @@ fn alarm_text(a: &UserAlarm) -> String {
     }
     let sound = SOUNDS.get(a.sound as usize).copied().unwrap_or("adhan");
     format!(
-        "{:02}:{:02} {} {} {}",
+        "{:02}:{:02} {} {} {} {}",
         a.minute / 60,
         a.minute % 60,
         days_text(a.days),
         if a.enabled { "on" } else { "off" },
-        sound
+        sound,
+        volume_text(a.volume)
     )
 }
 
@@ -451,7 +479,9 @@ mod tests {
         s.set_place("Nasr City").then_some(()).unwrap();
         s.prayers_on = 0b1_0101;
         s.offset_min[1] = -5;
-        s.alarms[2] = UserAlarm { used: true, enabled: false, days: 0b0010_0000, minute: 390, sound: 1 };
+        s.alarms[2] = UserAlarm { used: true, enabled: false, days: 0b0010_0000, minute: 390, sound: 1, volume: 9 };
+        s.volume = 18;
+        s.prayer_volume = [0, 4, 0, 30, 0];
         s.snooze_minute = Some(6 * 60 + 5);
         s.lamp_on = true;
         s.clock_24h = true;
@@ -463,7 +493,7 @@ mod tests {
     #[test]
     fn a_patch_leaves_everything_it_does_not_mention_alone() {
         let mut base = Settings::default();
-        base.alarms[0] = UserAlarm { used: true, enabled: true, days: ALL_DAYS, minute: 400, sound: 0 };
+        base.alarms[0] = UserAlarm { used: true, enabled: true, days: ALL_DAYS, minute: 400, sound: 0, volume: 0 };
         base.brightness_max = 40;
         let s = patched(&base, "ssid = Home\npsk = secret\n");
         assert_eq!(s.ssid(), "Home");
@@ -498,12 +528,28 @@ mod tests {
         let s = patched(&Settings::default(), "alarm1 = 06:30 fri-sat off chime\n");
         assert_eq!(
             s.alarms[0],
-            UserAlarm { used: true, enabled: false, days: 0b0110_0000, minute: 390, sound: 1 }
+            UserAlarm { used: true, enabled: false, days: 0b0110_0000, minute: 390, sound: 1, volume: 0 }
         );
         let text = dump(&s);
-        assert!(text.contains("alarm1 = 06:30 fri,sat off chime"), "{text}");
+        assert!(text.contains("alarm1 = 06:30 fri,sat off chime default"), "{text}");
         assert!(text.contains("alarm2 = empty"), "{text}");
         assert_eq!(patched(&s, "alarm1 = empty\n").alarms[0], UserAlarm::EMPTY);
+    }
+
+    #[test]
+    fn volumes_read_as_default_or_a_level_and_mistakes_say_what_is_allowed() {
+        let s = patched(
+            &Settings::default(),
+            "volume = 15\nvolume_asr = 6\nvolume_isha = default\nalarm2 = 07:00 * on adhan 12\nalarm3 = 07:30 * on beep\n",
+        );
+        assert_eq!(s.volume, 15);
+        assert_eq!(s.prayer_volume, [0, 0, 6, 0, 0]);
+        assert_eq!(s.alarms[1].volume, 12);
+        assert_eq!(s.alarms[2].volume, 0); // left out means default
+        for bad in ["volume = 31\n", "volume_fajr = 0\n", "volume_fajr = loud\n", "alarm1 = 07:00 * on adhan 31\n"] {
+            let e = apply(&mut Settings::default(), &parse(bad).unwrap()).unwrap_err();
+            assert!(e.contains("volume") || e.contains("at most") || e.contains("30"), "{bad}: {e}");
+        }
     }
 
     #[test]
