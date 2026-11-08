@@ -246,7 +246,7 @@ impl Face {
             }
         }
 
-        // Today's five: the name, a dot that is filled when that prayer rings, and its time under
+        // Today's five: the name, a bell (solid when that prayer rings, slashed when not), and its time under
         // the name. Fifty pixels a column is what limits the time to a one-letter meridiem.
         if s.today.iter().any(|t| t.is_some()) {
             let _ = Line::new(Point::new(10, 88), Point::new(240, 88))
@@ -258,7 +258,7 @@ impl Face {
                 Some(NextUp::Prayer(_, p)) => Some(p.index()),
                 _ => None,
             };
-            // The name and its dot are centred on the column as one piece, with the time centred
+            // The name and its bell are centred on the column as one piece, with the time centred
             // under that piece. The names differ in width ("Asr" against "Maghrib"), so first work
             // out where each column's ink starts and ends: the dividers go in the gaps between them.
             let mut bufs = [[0u8; SHORT_LEN]; 5];
@@ -266,7 +266,7 @@ impl Face {
             let mut span = [(0i32, 0i32); 5];
             for (i, buf) in bufs.iter_mut().enumerate() {
                 let cx = 29 + i as i32 * 48;
-                let group = Prayer::ALL[i].name().len() as i32 * 6 + 3 + 5;
+                let group = Prayer::ALL[i].name().len() as i32 * 6 + 3 + BELL_W;
                 times[i] = match s.today[i] {
                     Some(min) => hhmm12_short(min, buf),
                     None => "--:--",
@@ -293,18 +293,11 @@ impl Face {
                 }
                 let name = p.name();
                 let w = name.len() as i32 * 6;
-                let x = cx - (w + 8) / 2;
+                let x = cx - (w + 3 + BELL_W) / 2;
                 let _ = Text::new(name, Point::new(x, 98), style).draw(frame);
 
                 let ring = s.prayers_on & (1 << p.index()) != 0;
-                let dot = Circle::new(Point::new(x + w + 3, 92), 5);
-                let _ = dot
-                    .into_styled(if ring {
-                        PrimitiveStyle::with_fill(ink)
-                    } else {
-                        PrimitiveStyle::with_stroke(ink, 1)
-                    })
-                    .draw(frame);
+                draw_bell(frame, x + w + 3, 92, ring, ink);
 
                 let t = times[i];
                 let _ = Text::new(t, Point::new(cx - t.len() as i32 * 3, 111), style).draw(frame);
@@ -641,6 +634,32 @@ impl Face {
         self.settle();
         if self.ready && self.driver.sleep().is_err() {
             defmt::info!("panel: could not be put to sleep");
+        }
+    }
+}
+
+/// Width of the bell in pixels.
+const BELL_W: i32 = 7;
+
+/// A bell seven pixels wide and eight tall, one byte a row with the left pixel in bit 6. Solid
+/// means the prayer rings.
+const BELL_ON: [u8; 8] = [
+    0b0001000, 0b0011100, 0b0111110, 0b0111110, 0b0111110, 0b1111111, 0b0000000, 0b0001000,
+];
+
+/// The same bell as an outline with a slash from top left to bottom right: the prayer is off.
+const BELL_OFF: [u8; 8] = [
+    0b1001000, 0b0110100, 0b0110010, 0b0101010, 0b0101010, 0b1111111, 0b0000010, 0b0001001,
+];
+
+/// Draws the bell with its top-left corner at (`x`, `y`) in `ink`, solid if `on` and slashed if not.
+fn draw_bell<D: DrawTarget<Color = Color>>(frame: &mut D, x: i32, y: i32, on: bool, ink: Color) {
+    let rows = if on { &BELL_ON } else { &BELL_OFF };
+    for (r, bits) in rows.iter().enumerate() {
+        for c in 0..BELL_W {
+            if bits & (1 << (BELL_W - 1 - c)) != 0 {
+                let _ = Pixel(Point::new(x + c, y + r as i32), ink).draw(frame);
+            }
         }
     }
 }

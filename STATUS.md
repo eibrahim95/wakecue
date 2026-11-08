@@ -19,7 +19,7 @@ The plan and its gates are in `docs/index.html#roadmap`. Move 3 (it ships) follo
 Each line has a row in `docs/build-log.html`.
 
 - **The face:** twelve-hour time, date, the next prayer or alarm with a
-  countdown, and the five prayers with their times and a dot each.
+  countdown, and the five prayers with their times and a bell each.
 - **The menu:** four buttons (PCF8574 at `0x20`) walk Prayers, My alarms and
   the alarm editor; a change is written to the settings block in flash and
   survives an unplug.
@@ -73,7 +73,7 @@ Each line has a row in `docs/build-log.html`.
   replaces "z z z" as the sleep mark (the corner is kept for the battery later), "Next:" moved down
   5 px, and thin vertical lines separate the five prayers. Builds; not flashed, so the spacing is
   unseen on the panel.
-- **The prayer strip:** each name and its dot are centred as one piece over its time, the five columns
+- **The prayer strip:** each name and its bell (solid when the prayer rings, outlined and slashed when not) are centred as one piece over its time, the five columns
   are centred on the rule, and the prayer named on the "Next:" line is drawn white on black (not
   when the next thing is an alarm). Builds; not flashed.
 - **One rule for every settings screen:** Up and Down only move between rows. OK on a value row
