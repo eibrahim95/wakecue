@@ -31,16 +31,14 @@ Each line has a row in `docs/build-log.html`.
 - **The zone:** the face, the alarms and the prayer strip follow the offset and summer-time
   rule stored in the block, not Egypt's. The Time zone screen (top menu, third row) sets the
   hour, the minute (00, 15, 30, 45) and the rule, and writes them on Save.
+- **The phone setup:** top menu, fourth row. The lamp raises an open network `Wakecue-XXXX` at
+  192.168.4.1 and answers DHCP from `core::dhcp`; a phone joined it and was given `.2`. Back or
+  a touch resets into the normal program. Nothing is served on top yet: no page, no DNS.
 - **Wi-Fi:** joins the house router as a station (scratch project), DHCP,
-  DNS, NTP. The lamp's own access point and setup page are move 1, not built.
+  DNS, NTP. The lamp's setup page is move 1, not built.
 
 ## Written but not yet seen
 
-- The phone setup (top menu, fourth row, "Phone setup"): the lamp raises an open Wi-Fi network
-  named `Wakecue-XXXX` (the last two bytes of its MAC), takes 192.168.4.1 and answers DHCP on
-  port 67 from `core::dhcp` (12 PC tests). Back or a touch resets it into the normal program.
-  This is the move 1 trip-wire: not yet joined from a real phone, so nobody has seen an address
-  handed out. Nothing is served on top yet (no page, no DNS).
 - The five prayer times computed on the boot from the stored place
   (`core::astro`): checked on the PC against all 18,260 times of the old Cairo
   table; not yet compared on the glass.
