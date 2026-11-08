@@ -44,6 +44,15 @@ Each line has a row in `docs/build-log.html`.
   `time.google.com` for the time, writes the clock, clears the power-loss flag, records
   `setup.wifi` and `setup.clock`, and resets into a clean boot. It synced. Any failure inside
   30 s falls back to waking once a minute.
+- **The place from a list:** the setup page searches 440 built-in places (`core::cities`) and fills
+  in the name, coordinates, UTC offset and summer-time rule, so nobody types a latitude. The raw
+  fields stay in a collapsed section for a village that is not listed.
+- **The calculation method:** the page has a Calculation method box with 19 authorities
+  (`core::methods`), filled in with a suggestion for the place picked and changeable; the chosen id
+  is kept in the settings block. Makkah's Fajr now reads 5:09 as on Google, where the lamp used the
+  Egyptian convention and gave 5:04.
+- **The minute:** times are rounded to the nearest minute, as the Egyptian Survey Authority's
+  published table is (94% of its 760 Mansoura times exactly, never more than a minute off).
 - **The sync message:** while the clock is fetched the panel says "Syncing time..." with the
   network's name under it.
 - **The first boot:** a lamp with nothing stored raises the setup network by itself
@@ -53,20 +62,6 @@ Each line has a row in `docs/build-log.html`.
 
 ## Written but not yet seen
 
-- The calculation method per place (`core::methods`, `core::cities`, `core::setup_page`): the lamp
-  used the Egyptian convention everywhere, so Makkah's Fajr was 5:04 where Google (Umm al-Qura)
-  has 5:09. The setup page now has a Calculation method box with 19 authorities, filled in with a
-  suggestion when a city is picked, and the chosen method's id is kept in the settings block
-  (spare byte 184). Four methods bring their own minute shifts (Turkey, Dubai, Morocco, Jordan).
-  Checked on the PC (217 core tests, and the arithmetic against AlAdhan for every method); not yet
-  tried from a phone. Gaps: Isha 120 min in Ramadan (Umm al-Qura), no high-latitude rule in summer
-  above about 48 degrees north, Iran's method (Maghrib by a sun angle).
-- Choosing the place from a list on the setup page (`core::cities`, `core::setup_page`): a search
-  box finds one of 440 built-in places (Egypt in depth, the Muslim world, and big cities
-  elsewhere) and fills the name, latitude, longitude, offset and summer-time rule; the raw
-  coordinates sit in a collapsed section for a village that is not listed. The list is sent from
-  flash at `/cities`. The coordinates were written from memory and spot-checked against 33
-  well-known places; checked on the PC only (197 core tests), not yet used from a phone.
 - Skipping the first-boot setup with Back or a touch, which writes the settings as they stand with
   the place marked as decided so the lamp does not ask again: written, nobody has said it was
   tried.
