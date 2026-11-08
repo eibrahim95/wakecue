@@ -23,14 +23,16 @@ use esp_storage::FlashStorage;
 use lamp_core::astro::Place;
 use lamp_core::buttons::{self, KeyReader};
 use lamp_core::calendar::{FORMAT_LEN, Zone, format_minutes};
+use lamp_core::dfplayer::fade_volume;
 use lamp_core::ds3231;
 use lamp_core::menu::{Menu, Screen};
 use lamp_core::schedule::{self, Action, Prayer, PrayerTimes, Rule, When};
 use lamp_core::settings::{
-    MAX_RULES, READ_LEN, SECTOR_A, SECTOR_B, SECTOR_LEN, STORED_LEN, Sector, Settings, Stored,
+    ADHAN_COUNT, MAX_RULES, READ_LEN, SECTOR_A, SECTOR_B, SECTOR_LEN, STORED_LEN, Sector, Settings, Stored,
 };
 use wakecue::clock;
 use wakecue::display::{Face, NextUp, PanelBus, Standby};
+use wakecue::player::Player;
 
 // The phone setup needs a heap and the radio, which the other binaries in this crate do not
 // link, so it belongs to this binary and not to the library.
@@ -44,6 +46,10 @@ mod station;
 /// How long an alarm nobody answers keeps flashing before the lamp gives up and goes back to
 /// sleep. A real ring should ring for longer than this; the panel is a stand-in, not a clock radio.
 const ALARM_MS: u32 = 60_000;
+
+/// How long a prayer's adhan may play before the lamp gives up on it: longer than any of the
+/// shipped files, so a recording plays to its end unless somebody answers it first.
+const PLAY_MAX_MS: u32 = 420_000;
 
 /// How long each of the alarm's two frames stays up, so the panel changes about once a second.
 const ALARM_BLINK_MS: u32 = 1_000;
@@ -102,6 +108,8 @@ fn main() -> ! {
         timer: peripherals.TIMG0,
         interrupt: peripherals.FROM_CPU_INTR0,
     });
+    // The MP3 board's serial link. Nothing is sent until something is to be played.
+    let mut player = Player::new(peripherals.UART1, peripherals.GPIO20, peripherals.GPIO21);
 
     // The display owns GPIO0, 1, 2, 8 and 9 (reset, busy, data/command, data, clock), so
     // this firmware never drives the onboard LED: it shares GPIO8 with the SPI data line.
@@ -286,9 +294,20 @@ fn main() -> ! {
     // it or it gives up. Whatever happens, the clock is drawn again afterwards: the glass must
     // never be left showing a ring that has ended.
     if let Some((at, action)) = alarm {
-        let title = match action {
-            Action::Play { track, .. } => Prayer::ALL[(track.max(1) as usize - 1).min(4)].name(),
-            _ => "Alarm",
+        // What rings, and for how long: a prayer plays its adhan once and ends with it; an alarm's
+        // sound repeats until it is answered or the minute is up. Both climb to their volume over
+        // the same fade.
+        let fade_in_s = settings.adhan_fade_in_s as u16;
+        let (title, ring) = match action {
+            Action::Play { track, file, volume, fade_in_s } => (
+                Prayer::ALL[(track.max(1) as usize - 1).min(4)].name(),
+                Some(Ring { file, volume, fade_in_s, max_ms: PLAY_MAX_MS, repeat: false }),
+            ),
+            Action::Alarm { file, volume } => (
+                "Alarm",
+                Some(Ring { file, volume, fade_in_s, max_ms: ALARM_MS, repeat: true }),
+            ),
+            _ => ("Alarm", None),
         };
         info!(
             "alarm: {} due at {}, flashing for up to {} s",
@@ -296,13 +315,13 @@ fn main() -> ! {
             Stamp(at),
             ALARM_MS / 1000
         );
-        let answered = run_alarm(&mut face, &mut i2c, &mut pad, title, at, zone);
+        let answered = run_alarm(&mut face, &mut i2c, &mut pad, &mut player, ring, title, at, zone);
         info!(
             "alarm: {}",
             if answered {
                 "answered"
             } else {
-                "gave up, nobody came"
+                "ended, nobody answered"
             }
         );
         let later = clock::now_minutes(&mut i2c);
@@ -340,6 +359,18 @@ fn main() -> ! {
             .expect("release expander pins");
         let mut reader = KeyReader::default();
         let mut menu = Menu::new(settings);
+        // The player is the only one who knows how many alarm sounds the card holds: its file
+        // count minus the adhan. No answer leaves the one the lamp assumes, so the picker is never
+        // empty.
+        match player.file_count() {
+            Some(files) => {
+                let alarms = files.saturating_sub(ADHAN_COUNT as u16);
+                menu.alarm_sounds = alarms.clamp(1, 99) as u8;
+                info!("card: {} files, so {} alarm sounds", files, menu.alarm_sounds);
+            }
+            None => info!("card: the player did not answer, assuming one alarm sound"),
+        }
+        let mut previewing = false;
         let mut port = [0u8; 1];
         let mut last_port = buttons::RELEASE_ALL;
         let mut last_touch = pad.is_high();
@@ -372,6 +403,17 @@ fn main() -> ! {
                     defmt::Debug2Format(&menu.screen),
                     outcome.save
                 );
+                // A sound being chosen plays while it is chosen, and stops with the next press.
+                if outcome.stop_sound && previewing {
+                    player.stop();
+                    previewing = false;
+                }
+                if let Some(pv) = outcome.preview {
+                    info!("preview: file {} at volume {}", pv.file, pv.volume);
+                    player.set_volume(pv.volume);
+                    player.play_file(pv.file);
+                    previewing = true;
+                }
                 if outcome.setup {
                     // The owner asked for the phone setup. It is a different program, and it
                     // never returns: Back or a touch resets the chip into this one again.
@@ -454,6 +496,9 @@ fn main() -> ! {
             delay.delay_millis(20);
         }
         info!("awake: idle, back to sleep");
+        if previewing {
+            player.stop();
+        }
 
         // The window may have crossed a minute, and the alarm was armed before it. Redraw with
         // the corner mark on, so the last thing on the glass is the lamp going back to sleep.
@@ -627,6 +672,8 @@ fn run_alarm(
     face: &mut Face,
     bus: &mut I2c<'static, esp_hal::Blocking>,
     pad: &mut Input<'static>,
+    player: &mut Player,
+    ring: Option<Ring>,
     title: &str,
     at: i64,
     zone: Zone,
@@ -642,11 +689,28 @@ fn run_alarm(
     let mut port = [0u8; 1];
     let mut waited = 0u32;
     let mut inverted = false;
+    // The sound starts as the panel does, at the quietest level, and climbs from there.
+    let max_ms = ring.as_ref().map_or(ALARM_MS, |r| r.max_ms);
+    let mut level = 0u8;
+    if let Some(r) = &ring {
+        level = fade_volume(r.volume, r.fade_in_s as u32 * 1000, 0);
+        info!("ring: file {} from volume {} up to {}", r.file, level, r.volume);
+        player.set_volume(level);
+        player.play_file(r.file);
+    }
     loop {
         face.show_alarm(title, at, zone, inverted);
         inverted = !inverted;
         waited += ALARM_BLINK_MS;
-        if waited >= ALARM_MS {
+        if let Some(r) = &ring {
+            let now = fade_volume(r.volume, r.fade_in_s as u32 * 1000, waited);
+            if now != level {
+                level = now;
+                player.set_volume(level);
+            }
+        }
+        if waited >= max_ms {
+            player.stop();
             return false;
         }
         let mut polled = 0;
@@ -654,13 +718,40 @@ fn run_alarm(
             bus.read(buttons::PCF8574_ADDR, &mut port)
                 .expect("read expander");
             if reader.update(port[0]).is_some() || pad.is_high() {
+                if ring.is_some() {
+                    player.stop();
+                }
                 return true;
+            }
+            if let Some(r) = &ring
+                && player.finished()
+            {
+                if r.repeat {
+                    player.play_file(r.file);
+                } else {
+                    // An adhan that has played to its end is over; nothing is left to stop.
+                    return false;
+                }
             }
             delay.delay_millis(ALARM_POLL_MS);
             polled += ALARM_POLL_MS;
         }
     }
 }
+
+/// What the player is to play while an alarm holds the panel.
+struct Ring {
+    /// The number in the card's file name.
+    file: u16,
+    /// The level it climbs to.
+    volume: u8,
+    fade_in_s: u16,
+    /// The longest it may go on.
+    max_ms: u32,
+    /// Play it again when it ends, until somebody answers.
+    repeat: bool,
+}
+
 fn draw_clock(
     face: &mut Face,
     now: i64,

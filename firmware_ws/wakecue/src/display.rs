@@ -17,9 +17,9 @@ use lamp_core::calendar::{
     COUNTDOWN_LEN, DATE_LEN, HHMM12_LEN, OFFSET_LEN, Zone, format_countdown, format_date,
     format_hhmm12, format_offset, meridiem,
 };
-use lamp_core::menu::{Field, Menu, Screen, VOLUME_LEN, day_name, format_volume, offset_parts};
+use lamp_core::menu::{Field, Menu, OF_LEN, Screen, VOLUME_LEN, day_name, format_of, format_volume, offset_parts};
 use lamp_core::schedule::Prayer;
-use lamp_core::settings::{MAX_USER_ALARMS, MAX_VOLUME};
+use lamp_core::settings::{ADHAN_COUNT, MAX_USER_ALARMS, MAX_VOLUME};
 use weact_studio_epd::graphics::{Display213BlackWhite, DisplayRotation};
 use weact_studio_epd::{Color, WeActStudio213BlackWhiteDriver};
 
@@ -372,7 +372,7 @@ impl Face {
             // Nothing to draw: the caller shows the clock face for Home.
             Screen::Home => {}
             Screen::Top { cursor } => {
-                for (i, label) in ["Prayers", "My alarms", "Volume", "Time zone", "Phone setup"].into_iter().enumerate() {
+                for (i, label) in ["Prayers", "My alarms", "Sound", "Time zone", "Phone setup"].into_iter().enumerate() {
                     let y = 30 + i as i32 * 20;
                     if i as u8 == cursor {
                         let _ = Text::new(">", Point::new(12, y), small).draw(frame);
@@ -396,17 +396,19 @@ impl Face {
                     let _ = Text::new(v, Point::new(160, y), small).draw(frame);
                 }
             }
-            Screen::PrayerEdit { prayer, field, on, volume } => {
+            Screen::PrayerEdit { prayer, field, on, sound, volume } => {
                 let _ = Text::new(Prayer::ALL[prayer as usize].name(), Point::new(14, 18), small)
                     .draw(frame);
+                let mut s_buf = [0u8; VOLUME_LEN];
                 let mut v_buf = [0u8; VOLUME_LEN];
                 let rows = [
                     ("Rings", if on { "on" } else { "off" }),
+                    ("Sound", format_volume(sound, menu.settings.default_adhan, &mut s_buf)),
                     ("Volume", format_volume(volume, menu.settings.volume, &mut v_buf)),
                     ("Save", ""),
                 ];
                 for (i, (label, value)) in rows.into_iter().enumerate() {
-                    let y = 44 + i as i32 * 22;
+                    let y = 38 + i as i32 * 18;
                     if i as u8 == field {
                         let _ = Text::new(">", Point::new(12, y), small).draw(frame);
                     }
@@ -414,22 +416,35 @@ impl Face {
                     let _ = Text::new(value, Point::new(96, y), small).draw(frame);
                 }
             }
-            Screen::Volume { level } => {
-                let _ = Text::new("Volume", Point::new(14, 18), small).draw(frame);
-                let mut v_buf = [0u8; VOLUME_LEN];
-                let num = format_volume(level, 0, &mut v_buf);
-                let big = MonoTextStyle::new(&FONT_10X20, Color::Black);
-                let _ = Text::new(num, Point::new(14, 52), big).draw(frame);
-                let _ = Text::new("of 30", Point::new(14 + num.len() as i32 * 10 + 8, 52), small).draw(frame);
-                // A bar from empty to the player's top level, so a step reads as a step.
-                let _ = Rectangle::new(Point::new(14, 66), Size::new(222, 14))
+            Screen::Sound { field, level, adhan, alarm } => {
+                let _ = Text::new("Sound", Point::new(14, 18), small).draw(frame);
+                let mut l_buf = [0u8; OF_LEN];
+                let mut a_buf = [0u8; OF_LEN];
+                let mut b_buf = [0u8; OF_LEN];
+                let rows = [
+                    ("Volume", format_of(level, MAX_VOLUME, &mut l_buf)),
+                    ("Default adhan", format_of(adhan, ADHAN_COUNT, &mut a_buf)),
+                    (
+                        "Default alarm",
+                        format_of(alarm, menu.alarm_sounds.max(1), &mut b_buf),
+                    ),
+                    ("Save", ""),
+                ];
+                for (i, (label, value)) in rows.into_iter().enumerate() {
+                    let y = 38 + i as i32 * 20;
+                    if i as u8 == field {
+                        let _ = Text::new(">", Point::new(12, y), small).draw(frame);
+                    }
+                    let _ = Text::new(label, Point::new(28, y), small).draw(frame);
+                    let _ = Text::new(value, Point::new(130, y), small).draw(frame);
+                }
+                // A bar for the volume row, so a step reads as a step.
+                let _ = Rectangle::new(Point::new(190, 30), Size::new(50, 8))
                     .into_styled(PrimitiveStyle::with_stroke(Color::Black, 1))
                     .draw(frame);
-                let fill = 220 * level as u32 / MAX_VOLUME as u32;
-                let _ = Rectangle::new(Point::new(15, 67), Size::new(fill, 12))
+                let fill = 48 * level as u32 / MAX_VOLUME as u32;
+                let _ = Rectangle::new(Point::new(191, 31), Size::new(fill, 6))
                     .into_styled(PrimitiveStyle::with_fill(Color::Black))
-                    .draw(frame);
-                let _ = Text::new("Up Down: change   Ok: save   Back: cancel", Point::new(14, 104), small)
                     .draw(frame);
             }
             Screen::Alarms { cursor } => {
@@ -513,6 +528,7 @@ impl Face {
                 let mut hour = [0u8; 2];
                 let mut minute = [0u8; 2];
                 let mut v_buf = [0u8; VOLUME_LEN];
+                let mut s_buf = [0u8; VOLUME_LEN];
                 let h12 = match (draft.minute / 60) % 12 {
                     0 => 12,
                     h => h,
@@ -521,12 +537,13 @@ impl Face {
                     ("Hour", two(h12 as u32, &mut hour)),
                     ("Minute", two((draft.minute % 60) as u32, &mut minute)),
                     ("Days", day_name(draft.days)),
+                    ("Sound", format_volume(draft.sound, menu.settings.default_alarm, &mut s_buf)),
                     ("Volume", format_volume(draft.volume, menu.settings.volume, &mut v_buf)),
                     ("Save", ""),
                     ("Delete", ""),
                 ];
                 for (i, (label, value)) in rows.into_iter().enumerate() {
-                    let y = 34 + i as i32 * 16;
+                    let y = 30 + i as i32 * 14;
                     if i as u8 == field {
                         let _ = Text::new(">", Point::new(12, y), small).draw(frame);
                     }

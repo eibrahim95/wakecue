@@ -45,15 +45,15 @@ pub enum Action {
     /// The lamp comes up over `ramp_min` minutes, finishing at the rule's time. It is the light
     /// half of any alarm, a prayer's or the lamp's own.
     Sunrise { ramp_min: u16 },
-    /// A prayer's sound: a track on the card, at the prayer's own time.
-    Play { track: u16, volume: u8, fade_in_s: u16 },
+    /// A prayer's sound at the prayer's own time. `track` is which prayer it is, 1 to 5, and says
+    /// what to call it; `file` is the number in the card's file name that plays.
+    Play { track: u16, file: u16, volume: u8, fade_in_s: u16 },
     LampOn,
     LampOff,
-    /// A user alarm. `sound` is the block's tone index; which file that becomes is the card's
-    /// business, and the panel is what rings until the card is wired. `volume` is the level
-    /// already worked out, the alarm's own or the general one, so whoever plays it need not know
-    /// about "Default".
-    Alarm { sound: u8, volume: u8 },
+    /// A user alarm. `file` is the number in the card's file name and `volume` the level, both
+    /// already worked out (the alarm's own choice or the default one), so whoever plays it need
+    /// not know about "Default".
+    Alarm { file: u16, volume: u8 },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -197,8 +197,8 @@ mod tests {
 
     const RULES: [Rule; 3] = [
         Rule { days: ALL_DAYS, when: When::Prayer(Prayer::Fajr, 0), action: Action::Sunrise { ramp_min: 15 } },
-        Rule { days: ALL_DAYS, when: When::Prayer(Prayer::Fajr, 0), action: Action::Play { track: 1, volume: 20, fade_in_s: 60 } },
-        Rule { days: 0b0001_1111, when: When::Local(7 * 60 + 30), action: Action::Alarm { sound: 0, volume: 22 } },
+        Rule { days: ALL_DAYS, when: When::Prayer(Prayer::Fajr, 0), action: Action::Play { track: 1, file: 1, volume: 20, fade_in_s: 60 } },
+        Rule { days: 0b0001_1111, when: When::Local(7 * 60 + 30), action: Action::Alarm { file: 101, volume: 22 } },
     ];
 
     #[test]
@@ -274,13 +274,13 @@ mod tests {
 
         // 07:30 Egypt on Sunday 25 Oct is still summer time (UTC+3) = 04:30 UTC.
         let e = next_event(e.utc_min + 1, &RULES, &t, Zone::CAIRO).unwrap();
-        assert_eq!(e, Event { utc_min: base + 4 * 60 + 30, action: Action::Alarm { sound: 0, volume: 22 } });
+        assert_eq!(e, Event { utc_min: base + 4 * 60 + 30, action: Action::Alarm { file: 101, volume: 22 } });
     }
 
     #[test]
     fn local_alarm_follows_the_clock_across_the_end_of_summer_time() {
         // Fri 30 Oct 2026 is winter time: 07:30 local = 05:30 UTC. Thursday 29 Oct is still summer: 04:30 UTC.
-        let rules = [Rule { days: ALL_DAYS, when: When::Local(7 * 60 + 30), action: Action::Alarm { sound: 0, volume: 22 } }];
+        let rules = [Rule { days: ALL_DAYS, when: When::Local(7 * 60 + 30), action: Action::Alarm { file: 101, volume: 22 } }];
         let thu = days_from_civil(2026, 10, 29);
         let t = Fake { first_day: 0, data: &[] };
         let e = next_event(thu as i64 * 1440, &rules, &t, Zone::CAIRO).unwrap();
@@ -292,7 +292,7 @@ mod tests {
     #[test]
     fn day_mask_skips_friday_and_saturday() {
         // Sun-Thu only: after Thursday's alarm the next is Sunday's, three days later.
-        let rules = [Rule { days: 0b0001_1111, when: When::Local(7 * 60 + 30), action: Action::Alarm { sound: 0, volume: 22 } }];
+        let rules = [Rule { days: 0b0001_1111, when: When::Local(7 * 60 + 30), action: Action::Alarm { file: 101, volume: 22 } }];
         let thu = days_from_civil(2026, 1, 8); // winter
         assert_eq!(weekday(thu), 4);
         let t = Fake { first_day: 0, data: &[] };
@@ -308,25 +308,25 @@ mod tests {
         let mut b = [0u8; 50];
         let t = table(&mut b, d, [190; 5]); // Dhuhr 290, Asr 390, Maghrib 490, Isha 590 UTC
         let rules = [
-            Rule { days: ALL_DAYS, when: When::Prayer(Prayer::Asr, 0), action: Action::Alarm { sound: 0, volume: 22 } },
+            Rule { days: ALL_DAYS, when: When::Prayer(Prayer::Asr, 0), action: Action::Alarm { file: 101, volume: 22 } },
             Rule { days: ALL_DAYS, when: When::Prayer(Prayer::Isha, -10), action: Action::LampOn },
         ];
         let base = d as i64 * 1440;
         let e = next_event(base, &rules, &t, Zone::CAIRO).unwrap();
-        assert_eq!(e, Event { utc_min: base + 390, action: Action::Alarm { sound: 0, volume: 22 } });
+        assert_eq!(e, Event { utc_min: base + 390, action: Action::Alarm { file: 101, volume: 22 } });
         let e = next_event(e.utc_min + 1, &rules, &t, Zone::CAIRO).unwrap();
         assert_eq!(e, Event { utc_min: base + 580, action: Action::LampOn });
     }
 
     #[test]
     fn no_events_when_there_are_no_prayer_times_and_only_fajr_rules() {
-        let rules = [Rule { days: ALL_DAYS, when: When::Prayer(Prayer::Fajr, 0), action: Action::Alarm { sound: 0, volume: 22 } }];
+        let rules = [Rule { days: ALL_DAYS, when: When::Prayer(Prayer::Fajr, 0), action: Action::Alarm { file: 101, volume: 22 } }];
         let t = Fake { first_day: 0, data: &[] };
         assert_eq!(next_event(20454 * 1440, &rules, &t, Zone::CAIRO), None);
     }
 
     fn alarm_at(h: u16, m: u16) -> [Rule; 1] {
-        [Rule { days: ALL_DAYS, when: When::Local(h * 60 + m), action: Action::Alarm { sound: 0, volume: 22 } }]
+        [Rule { days: ALL_DAYS, when: When::Local(h * 60 + m), action: Action::Alarm { file: 101, volume: 22 } }]
     }
 
     #[test]
