@@ -57,10 +57,19 @@ Each line has a row in `docs/build-log.html`.
   network's name under it.
 - **The first boot:** a lamp with nothing stored raises the setup network by itself
   (`Wakecue-XXXX`), without going through the menu.
+- **The MP3 board:** serial link both ways on GPIO20/21, plays a track and the speaker works at volume
+  20 straight from the SuperMini's 5V pin; the card's file count is command 0x48 (21 adhan plus a
+  test beep reads 22); `/mp3/0101.mp3` plays by name across a gap, so adhan are 0001-0099 and alarm
+  sounds start at 0101. The datasheet's table has 0x47 and 0x48 the wrong way round for this board.
+  Test programs `just sound` and `just numbering`. Powered from 5V here, not through the rail switch.
 - **Wi-Fi:** joins the house router as a station (scratch project), DHCP,
   DNS, NTP. The lamp's own network, setup page and clock sync are in the entries above.
 
 ## Written but not yet seen
+
+- **The volume menu:** a general volume, and a volume for each of the five prayers and eight alarms,
+  each with Default (the general one). Tested on the PC; the screens are drawn but nobody has looked
+  at them, and nothing plays yet, so no level has been heard through the lamp's own code.
 
 - Skipping the first-boot setup with Back or a touch, which writes the settings as they stand with
   the place marked as decided so the lamp does not ask again: written, nobody has said it was
@@ -83,10 +92,9 @@ owned, not bought: a USB SD reader, a 16 GB microSD (FAT32, `mp3` folder), a
 soldering iron, Stannol solder, a screwdriver.
 
 **Wired on the breadboard:** SuperMini, DS3231 (no coin cell), TTP223,
-PCF8574 + four buttons, e-paper.
+PCF8574 + four buttons, e-paper, the MP3 board and its speaker (5V and GND, GPIO20/21 through 1 kΩ).
 
-**In hand but not fitted:** LED ring, AO3400 rail switch, MP3 board and
-speaker, INA219, NCR18650B + holder + TP4056, CR2032, slide switch,
+**In hand but not fitted:** LED ring, AO3400 rail switch, INA219, NCR18650B + holder + TP4056, CR2032, slide switch,
 perfboard, the fallback parts (MT3608, AO3401, 1N5819WF).
 
 **Not done to the boards yet:** the SuperMini's power LED and the DS3231's
