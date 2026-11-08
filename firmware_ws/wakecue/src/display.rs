@@ -304,7 +304,8 @@ impl Face {
                 let t = times[i];
                 let _ = Text::new(t, Point::new(cx - t.len() as i32 * 3, 111), style).draw(frame);
             }
-            for &x in &edge[1..5] {
+            // All six, the two at the ends included, so the outer columns are boxed in like the rest.
+            for &x in &edge {
                 let _ = Line::new(Point::new(x, 92), Point::new(x, 114)).into_styled(rule).draw(frame);
             }
         }
