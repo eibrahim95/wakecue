@@ -76,12 +76,17 @@ Each line has a row in `docs/build-log.html`.
   commands was added. Not yet reported: the prayer screens, the alarm editor's rows, and a due prayer
   or alarm ringing by itself. The player stays powered from 5V all the time, so nothing yet measures
   the idle draw or the rail switch.
-- **The sound library on the card:** `tools/audio_card.py` builds it. Adhan 0001-0021 are the IslamCan
-  files, 0101 is the test beep, 0102-0139 are 38 ringtones from Wikimedia Commons (credits in
-  `docs/audio-credits.md`), and every other slot up to 0100 and 0200 holds a spoken placeholder saying
-  to replace it. Chosen by title and licence; nobody has listened to the ringtones yet. Twelve more
-  candidates (tabla, gamelan, zurna, flamenco, kantele, balalaika, Hawaiian, 1918 song, music-box
-  clock, donkey, parrot, Hee Haw) were left out because Wikimedia throttled the large downloads.
+- **The sound library on the card:** `tools/audio_card.py` builds it, in the order of
+  `tools/ringtone_order.txt`. Adhan 0001-0021 are the IslamCan files; alarm sounds start at 0101 with
+  Egypt and the Arab world first (a traditional mizmar from Cairo, an Egyptian wedding, an orange
+  street vendor, oud, ney, flute, darbuka, a Lebanese zaffa), then Turkey, Armenia, Iran and Israel,
+  then about 30 funny ones (kazoo fanfare, goats, clown horn, camel, slide whistle, rubber chicken,
+  donkeys, a laughing child, yodel, vuvuzela, Hee Haw), then the rest of the world: 87 in all,
+  0101-0187, with credits in `docs/audio-credits.md`. A very short clip is repeated with gaps so it
+  does not hammer. The test beep is gone. Every other slot up to 0100 and 0200 holds a spoken
+  placeholder. Found on Wikimedia Commons and, through Openverse, on Freesound and Jamendo; chosen by
+  title and licence, so nobody has listened to them. The card itself still has the earlier set until it
+  is copied again.
 - Skipping the first-boot setup with Back or a touch, which writes the settings as they stand with
   the place marked as decided so the lamp does not ask again: written, nobody has said it was
   tried.

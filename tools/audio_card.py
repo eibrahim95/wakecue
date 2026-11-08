@@ -4,7 +4,7 @@
 The card is numbered by what the file is for, and the lamp never counts files:
 
     0001-0100   adhan          (the 21 downloaded ones are 0001-0021)
-    0101-0200   alarm sounds   (0101 is the test beep, the ringtones follow)
+    0101-0200   alarm sounds   (the ringtones, in the order of tools/ringtone_order.txt)
 
 Every slot nobody has filled gets a placeholder recording, a robot voice that says which slot it is
 and to replace the file, so choosing an empty slot is never silence.
@@ -26,11 +26,14 @@ ROOT = Path(__file__).resolve().parent.parent
 AUDIO = ROOT / "audio"
 SRC = AUDIO / "ringtones-source"
 OUT = AUDIO / "sd" / "mp3"
-CREDITS = SRC / "credits.json"            # one entry per ringtone: slug, kind, title, artist, license, page
-FIRST_RINGTONE = 102                       # 0101 is the test beep
+CREDITS = [SRC / "credits.json", SRC / "credits_ov.json"]   # Wikimedia Commons ones, and the Openverse ones
+ORDER = ROOT / "tools" / "ringtone_order.txt"
+FIRST_RINGTONE = 101
 ADHAN_SLOTS = range(1, 101)
 ALARM_SLOTS = range(101, 201)
 CLIP_S = 25                                # longest a ringtone is kept
+SHORT_S = 6.0                              # shorter than this, a clip is repeated with gaps up to about:
+FILL_S = 10.0
 SAMPLE_RATE = "22050"
 
 
@@ -47,9 +50,17 @@ def duration(path):
 
 
 def to_mp3(src, dst, fade=True):
-    """Mono, 22.05 kHz, leading silence off, level matched, at most CLIP_S seconds with a fade out."""
+    """Mono, 22.05 kHz, leading silence off, level matched, at most CLIP_S seconds with a fade out.
+    A clip shorter than SHORT_S is repeated with gaps up to about FILL_S: an air horn alone would
+    repeat every two seconds once the lamp plays it again."""
     length = min(duration(src), CLIP_S)
     filters = ["silenceremove=start_periods=1:start_threshold=-50dB:start_silence=0.05"]
+    if length < SHORT_S:
+        gap = 1.2
+        reps = max(2, int(FILL_S // (length + gap) + 0.5))
+        filters.append(f"apad=pad_dur={gap}")
+        filters.append(f"aloop=loop={reps - 1}:size=2000000")
+        length = reps * (length + gap)
     filters.append("loudnorm=I=-16:TP=-1.5:LRA=11")
     if fade and length > 6:
         filters.append(f"afade=t=out:st={length - 3:.1f}:d=3")
@@ -58,8 +69,23 @@ def to_mp3(src, dst, fade=True):
         "-map_metadata", "-1", "-id3v2_version", "0", "-write_xing", "0", str(dst))
 
 
+def load_credits():
+    """Every ringtone that has a file, in the order of tools/ringtone_order.txt (then the rest)."""
+    entries = {}
+    for path in CREDITS:
+        if path.exists():
+            for e in json.loads(path.read_text()):
+                entries[e["slug"]] = e
+    order = [l.strip() for l in ORDER.read_text().splitlines() if l.strip() and not l.startswith("#")]
+    ranked = [entries[sl] for sl in order if sl in entries]
+    rest = [e for sl, e in entries.items() if sl not in order]
+    for e in rest:
+        print(f"note: {e['slug']} is not in tools/ringtone_order.txt, so it goes last")
+    return ranked + rest
+
+
 def ringtones():
-    credits = json.loads(CREDITS.read_text())
+    credits = load_credits()
     OUT.mkdir(parents=True, exist_ok=True)
     slot = FIRST_RINGTONE
     done = []
@@ -73,12 +99,12 @@ def ringtones():
         to_mp3(src, dst)
         entry["slot"] = slot
         done.append(entry)
-        print(f"{slot:04d}  {entry['slug']:18} {duration(dst):5.1f} s  {entry.get('license', '?')}")
+        print(f"{slot:04d}  {entry['slug']:20} {duration(dst):5.1f} s  {entry.get('license', '?')}")
         slot += 1
         if slot > 200:
             raise SystemExit("more ringtones than alarm slots")
-    CREDITS.write_text(json.dumps(credits, ensure_ascii=False, indent=1))
-    print(f"{len(done)} ringtones, slots 0102-{slot - 1:04d}")
+    (SRC / "slots.json").write_text(json.dumps(done, ensure_ascii=False, indent=1))
+    print(f"{len(done)} ringtones, slots {FIRST_RINGTONE:04d}-{slot - 1:04d}")
 
 
 def spoken(n):
@@ -111,13 +137,13 @@ def placeholders():
 
 
 def index():
-    credits = json.loads(CREDITS.read_text()) if CREDITS.exists() else []
+    slots = SRC / "slots.json"
+    credits = json.loads(slots.read_text()) if slots.exists() else []
     lines = ["# Lamp sounds", "",
              "Adhan 0001-0100, alarm sounds 0101-0200. A slot with no real sound holds a spoken placeholder.", "",
              "| File | Sound | Author | Licence | Source |", "|---|---|---|---|---|"]
     lines.append("| 0001-0021 | Adhan, 21 recordings | IslamCan | see its copyright page | "
                  "https://www.islamcan.com/audio/adhan/index.shtml |")
-    lines.append("| 0101 | Test beep, 880 Hz | made for this project | - | - |")
     for e in credits:
         if "slot" not in e:
             continue
@@ -126,7 +152,8 @@ def index():
     text = "\n".join(lines) + "\n"
     (AUDIO / "sd" / "INDEX.md").write_text(text)
     (ROOT / "docs" / "audio-credits.md").write_text(
-        text + "\nThe ringtones come from Wikimedia Commons. Each is trimmed to 25 s, level matched and "
+        text + "\nThe ringtones come from Wikimedia Commons, and, through Openverse, from Freesound and "
+        "Jamendo. Each is trimmed to 25 s (a very short one is repeated with gaps), level matched and "
         "converted to mono MP3, which counts as an adaptation: the licence of each applies to its copy. "
         "CC BY and CC BY-SA need the credit above; CC BY-SA also asks that the adapted copy carry the same "
         "licence. Ask IslamCan before selling a lamp with its adhan on the card.\n")
