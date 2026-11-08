@@ -111,7 +111,11 @@ Numbers or sightings only the board can give.
 - **The base:** never test-printed; the globe seat assumes an 8 cm neck. The
   button stem height (drawn as a 3.5 mm body with about 2 mm of stem) needs
   checking on the real switch before printing.
-- **Prayer times:** all five come from a calculator method (Egyptian General
-  Authority of Survey), and official timetables add safety margins. Compare
-  each of the five with the local mosque's timetable and set that prayer's
-  offset (the settings block keeps one per prayer) to any constant difference.
+- **Prayer times:** the lamp rounds to the nearest minute, as the Egyptian General
+  Authority of Survey does, and against the Authority's published Mansoura
+  timetable (760 times, five months of 2026) it gives the published minute 94% of
+  the time and is never more than a minute away; the Authority's table shows no
+  systematic margin on any prayer. A mosque may still ring a minute or two off the Authority's table: set
+  that prayer's offset (the settings block keeps one per prayer, but no screen
+  sets it yet). Not done: Isha 120 minutes in Ramadan for the Umm al-Qura method
+  (Saudi Arabia), which the lamp has no Hijri calendar to follow.

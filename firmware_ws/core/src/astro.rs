@@ -12,7 +12,7 @@
 //! time belongs to is the scheduler's question, not this module's.
 
 use crate::schedule::{Prayer, PrayerTimes};
-use libm::{acos, asin, atan, ceil, cos, fabs, sin, tan};
+use libm::{acos, asin, atan, cos, fabs, floor, sin, tan};
 
 const PI: f64 = core::f64::consts::PI;
 
@@ -134,7 +134,11 @@ impl Method {
 
 /// The time of `prayer` on UTC day `day`, in minutes after 00:00 UTC.
 ///
-/// Rounded up, so nothing rings before the astronomical time. `None` means the sun never reaches
+/// Rounded to the nearest minute, as the Egyptian General Authority of Survey rounds the times it
+/// publishes: against that Authority's own timetable for Mansoura (760 times over five months) this
+/// rule reproduces the published minute 94% of the time, where rounding up reproduces it 43% and
+/// rounding down 57%, and the rest differ by one minute (see `tests/egas_mansoura.rs`). `None` means
+/// the sun never reaches
 /// the altitude that prayer needs, which is a summer at a high latitude: the block stores a
 /// `high_lat` rule, and nothing reads it yet, so such a prayer simply has no time.
 ///
@@ -150,11 +154,16 @@ pub fn utc_min(prayer: Prayer, day: i32, lat: f64, lon: f64, method: &Method) ->
             Some(a) => Event::Night(a),
             None => {
                 let sunset = minutes(day, lat, lon, Event::Sunset)?;
-                return Some(ceil(sunset + f64::from(method.isha_minutes)) as i64);
+                return Some(round(sunset + f64::from(method.isha_minutes)));
             }
         },
     };
-    Some(ceil(minutes(day, lat, lon, ev)?) as i64)
+    Some(round(minutes(day, lat, lon, ev)?))
+}
+
+/// The nearest whole minute, halves going up.
+fn round(minutes: f64) -> i64 {
+    floor(minutes + 0.5) as i64
 }
 
 /// A place and its method, ready to be the scheduler's source of times.
