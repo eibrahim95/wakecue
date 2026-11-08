@@ -31,6 +31,16 @@ lamp:
 ring:
     cargo run --release --bin ring
 
+# Talk to the MP3 board over GPIO20/21: wait, set a low volume, ask how many files the card holds,
+# play tracks 1 to 3, stop, repeat. Logs every byte the board sends back.
+sound:
+    cargo run --release --bin sound
+
+# Does the MP3 board find a file by the number in its name or by its position? Plays track 22,
+# file 0101 and file 0001 in turn and asks the board what it is playing. Needs /mp3/0101.mp3.
+numbering:
+    cargo run --release --bin numbering
+
 # Read the defmt log while the chip is awake. Name the binary you flashed —
 # `just monitor buttons`, or nothing for the lamp itself.
 monitor name="wakecue":
