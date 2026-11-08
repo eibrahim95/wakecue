@@ -9,10 +9,12 @@
 //! - the connectivity checks phones make on joining (`/generate_204`, `/hotspot-detect.html`, ...)
 //!   get a redirect to the setup page, which is what makes the phone offer to "sign in";
 //! - `GET /` is the setup page;
+//! - `GET /cities` is the list of places the page searches, sent straight from flash;
 //! - `POST /save` applies the form, and only when every field is valid does it change the
 //!   settings and say so, so the firmware writes flash only when `saved` is true;
 //! - anything else is a plain error.
 
+use crate::cities;
 use crate::http::{self, Method, Request, Status};
 use crate::settings::Settings;
 use crate::setup_page::{self, FormError};
@@ -20,8 +22,9 @@ use crate::setup_page::{self, FormError};
 /// Where the redirects point: the lamp's own address on its own network.
 pub const HOME: &str = "http://192.168.4.1/";
 
-/// Room for the largest body this module writes (the page is held under 6000 bytes).
-pub const BODY_MAX: usize = 6144;
+/// Room for the largest body this module writes into the caller's buffer (the page is held under
+/// 7600 bytes). Larger fixed data is not copied: see [`Reply::extra`].
+pub const BODY_MAX: usize = 8192;
 /// Room for a reply head.
 pub const HEAD_MAX: usize = 384;
 
@@ -34,6 +37,9 @@ pub struct Reply {
     pub body: usize,
     /// The form was valid and `settings` now holds it: the caller stores them.
     pub saved: bool,
+    /// Fixed data to send after the body, straight from flash: too big for the body buffer and
+    /// never changing, so it is not copied. Its length is already in the head's Content-Length.
+    pub extra: &'static [u8],
 }
 
 fn plain(
@@ -49,6 +55,7 @@ fn plain(
         head: http::head(head, status, "text/plain; charset=utf-8", text.len(), location).unwrap_or(0),
         body: text.len(),
         saved: false,
+        extra: &[],
     }
 }
 
@@ -62,6 +69,7 @@ fn html(head: &mut [u8; HEAD_MAX], body: &mut [u8; BODY_MAX], len: Option<usize>
         head: http::head(head, Status::Ok, "text/html; charset=utf-8", len, None).unwrap_or(0),
         body: len,
         saved: false,
+        extra: &[],
     }
 }
 
@@ -75,6 +83,15 @@ pub fn respond(
     match (req.method, req.path) {
         (Method::Get, path) if http::is_captive_probe(path) => {
             plain(head, body, Status::Found, "Wakecue setup", Some(HOME))
+        }
+        (Method::Get, "/cities") => {
+            let list = cities::LIST.as_bytes();
+            Reply {
+                head: http::head(head, Status::Ok, "text/plain; charset=utf-8", list.len(), None).unwrap_or(0),
+                body: 0,
+                saved: false,
+                extra: list,
+            }
         }
         (Method::Get, "/") => {
             let len = setup_page::render(settings, body);
@@ -233,6 +250,22 @@ mod tests {
         // An empty password field keeps the saved one.
         ask(&post("ssid=Home+Net&psk="), &mut s);
         assert_eq!(s.psk(), "correct horse");
+    }
+
+    #[test]
+    fn the_list_of_places_is_sent_from_flash_not_copied() {
+        let mut s = Settings::default();
+        let (r, head, _) = ask("GET /cities HTTP/1.1\r\nHost: x\r\n\r\n", &mut s);
+        let head = text(&head[..r.head]);
+        assert!(head.starts_with("HTTP/1.1 200"), "{head}");
+        assert!(head.contains("text/plain"));
+        assert!(head.contains(&format!("Content-Length: {}\r\n", cities::LIST.len())), "{head}");
+        assert_eq!(r.body, 0);
+        assert_eq!(r.extra, cities::LIST.as_bytes());
+        assert!(!r.saved);
+        // The page is told where to ask for it.
+        let (r, _, body) = ask("GET / HTTP/1.1\r\nHost: x\r\n\r\n", &mut s);
+        assert!(text(&body[..r.body]).contains("/cities"));
     }
 
     #[test]

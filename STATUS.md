@@ -53,6 +53,12 @@ Each line has a row in `docs/build-log.html`.
 
 ## Written but not yet seen
 
+- Choosing the place from a list on the setup page (`core::cities`, `core::setup_page`): a search
+  box finds one of 440 built-in places (Egypt in depth, the Muslim world, and big cities
+  elsewhere) and fills the name, latitude, longitude, offset and summer-time rule; the raw
+  coordinates sit in a collapsed section for a village that is not listed. The list is sent from
+  flash at `/cities`. The coordinates were written from memory and spot-checked against 33
+  well-known places; checked on the PC only (197 core tests), not yet used from a phone.
 - Skipping the first-boot setup with Back or a touch, which writes the settings as they stand with
   the place marked as decided so the lamp does not ask again: written, nobody has said it was
   tried.

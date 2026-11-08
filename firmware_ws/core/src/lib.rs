@@ -3,6 +3,7 @@
 
 pub mod astro;
 pub mod buttons;
+pub mod cities;
 pub mod calendar;
 pub mod dfplayer;
 pub mod dhcp;

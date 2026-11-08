@@ -269,6 +269,7 @@ async fn http_task(stack: Stack<'static>, state: &'static State) -> ! {
             }
         };
 
+        let mut extra: &'static [u8] = &[];
         let (head_len, body_len) = match parsed {
             Some(Parsed::Complete(req)) => {
                 let mut shared = state.lock().await;
@@ -292,6 +293,7 @@ async fn http_task(stack: Stack<'static>, state: &'static State) -> ! {
                         info!("setup: the change could not be written to flash");
                     }
                 }
+                extra = reply.extra;
                 (reply.head, reply.body)
             }
             Some(_) => (
@@ -305,7 +307,8 @@ async fn http_task(stack: Stack<'static>, state: &'static State) -> ! {
             ),
         };
         let _ = send_all(&mut socket, &head[..head_len]).await
-            && send_all(&mut socket, &body[..body_len]).await;
+            && send_all(&mut socket, &body[..body_len]).await
+            && send_all(&mut socket, extra).await;
         let _ = with_timeout(IO_TIMEOUT, socket.flush()).await;
         socket.close();
         let _ = with_timeout(IO_TIMEOUT, socket.flush()).await;

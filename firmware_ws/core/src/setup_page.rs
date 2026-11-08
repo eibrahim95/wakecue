@@ -391,18 +391,58 @@ color:inherit;background:var(--b);border:1px solid var(--l);border-radius:8px}\
 button{margin-top:1rem;background:var(--a);color:#fff;border:0;font-weight:600}\
 button.s{background:none;color:var(--f);border:1px solid var(--l);font-weight:400}\
 small{display:block;margin-top:.25rem;opacity:.7}\
+details{margin-top:1rem}summary{min-height:48px;display:flex;align-items:center}\
+#r button{text-align:left;margin-top:.25rem}#c{font-weight:600}\
 </style><body><main><h1>Wakecue setup</h1>";
+
+/// The place search. It runs only in the owner's browser: the first time the box is touched it asks
+/// the lamp for `/cities`, one place per line as `Name|Country|lat|lon|utc|dst` (degrees with two
+/// decimals, the standard offset in minutes, and the summer-time rule's name), and filters that
+/// list as the owner types. Picking a place fills the same form fields the manual section holds,
+/// so the post is the same either way. Nothing here runs when the page loads.
+const SCRIPT: &str = r#"<script>
+var L=null,B=0,q=document.getElementById('q'),r=document.getElementById('r'),c=document.getElementById('c');
+function g(i){return document.getElementById(i)}
+function f(m){var a=Math.abs(m);return(m<0?'-':'+')+Math.floor(a/60)+':'+('0'+a%60).slice(-2)}
+var W={none:'no summer time',egypt:'Egypt summer time',europe:'European summer time',us:'US summer time'};
+function ld(){if(L||B)return;B=1;r.textContent='Loading places...';
+var x=new XMLHttpRequest();x.open('GET','/cities');
+x.onload=function(){B=0;if(x.status!=200)return x.onerror();
+L=x.responseText.split(/\r?\n/).filter(Boolean).map(function(l){return l.split('|')});sh()};
+x.onerror=function(){B=0;r.textContent='Could not load the list. Enter the coordinates below.'};x.send()}
+function sh(){if(!L)return;r.textContent='';var t=q.value.trim().toLowerCase();if(!t)return;
+var m=L.filter(function(e){return(e[0]+', '+e[1]).toLowerCase().indexOf(t)>=0});
+function s0(e){return e[0].toLowerCase().indexOf(t)==0?0:1}
+m.sort(function(a,b){return s0(a)-s0(b)||(a[0]<b[0]?-1:a[0]>b[0]?1:0)});
+if(!m.length)r.textContent='No match. Try another spelling, or enter the coordinates below.';
+m.slice(0,8).forEach(function(e){var b=document.createElement('button');b.type='button';b.className='s';
+b.textContent=e[0]+', '+e[1];b.onclick=function(){pk(e)};r.appendChild(b)})}
+function pk(e){var u=g('utc'),v=e[4];g('place').value=e[0];g('lat').value=e[2];g('lon').value=e[3];
+if(![].some.call(u.options,function(o){return o.value==v}))u.add(new Option('UTC'+f(+v),v),u.options[0]);
+u.value=v;g('dst').value=e[5];r.textContent='';
+c.textContent=e[0]+', '+e[1]+': UTC'+f(+v)+', '+W[e[5]]+'. Check this is your place, then Save.'}
+q.onfocus=ld;q.oninput=function(){ld();sh()}
+</script>"#;
 
 /// Write the setup page for the settings `s` into `out` and return its length, or `None` if `out`
 /// is too small. Every field is filled with what the lamp has now, so saving without touching
 /// anything changes nothing.
+///
+/// The owner finds the place by name in the search box on top. The coordinates and the zone it
+/// fills in live in a collapsed section below, still part of the form, for a village the list does
+/// not have.
 pub fn render(s: &Settings, out: &mut [u8]) -> Option<usize> {
     let mut p = Page::new(out);
     p.raw(HEAD);
-    p.raw("<form method=post action=/save><label for=place>Place name</label>\
+    p.raw("<form method=post action=/save><label for=q>Find your city</label>\
+<input id=q type=search autocomplete=off autocapitalize=off autocorrect=off spellcheck=false \
+placeholder=\"Start typing, e.g. Cairo\"><div id=r></div><p id=c></p>\
+<label for=place>Place name</label>\
 <input id=place name=place maxlength=15 autocomplete=off value=\"");
     p.escaped(s.place_name());
-    p.raw("\"><label for=lat>Latitude, in degrees</label>\
+    p.raw("\"><details><summary>Enter coordinates and zone yourself</summary>\
+<small>Use this for a village that is not in the list.</small>\
+<label for=lat>Latitude, in degrees</label>\
 <input id=lat name=lat inputmode=decimal autocomplete=off value=\"");
     p.degrees(s.lat_e2);
     p.raw("\"><label for=lon>Longitude, in degrees</label>\
@@ -430,7 +470,7 @@ Use my phone's offset</button><label for=dst>Summer time</label><select id=dst n
         p.raw(">");
         p.raw(label);
     }
-    p.raw("</select><label for=ssid>Home Wi-Fi network</label>\
+    p.raw("</select></details><label for=ssid>Home Wi-Fi network</label>\
 <input id=ssid name=ssid maxlength=32 autocapitalize=off autocorrect=off spellcheck=false \
 autocomplete=off value=\"");
     p.escaped(s.ssid());
@@ -440,6 +480,7 @@ autocomplete=off value=\"");
 <input id=psk name=psk type=password maxlength=63 autocapitalize=off autocorrect=off \
 spellcheck=false autocomplete=new-password><small>Leave empty to keep the saved password.</small>\
 <button>Save</button></form>");
+    p.raw(SCRIPT);
     p.done()
 }
 
@@ -560,17 +601,19 @@ mod tests {
     }
 
     #[test]
-    fn the_worst_case_page_fits_in_six_thousand_bytes() {
-        // Fifteen bytes of the character that grows most, and an offset off the quarter hour.
+    fn the_worst_case_page_fits_in_seventy_six_hundred_bytes() {
+        // Fifteen bytes of the character that grows most, and an offset off the quarter hour. The
+        // limit is the room the firmware keeps for a page (8192 bytes) less some margin; the place
+        // search added its script and markup to what used to be a 6000 byte page.
         let mut s = Settings::default();
         assert!(s.set_place(&"\"".repeat(15)));
         assert!(s.set_ssid(&"\"".repeat(32)));
         assert!(s.set_psk(&"x".repeat(63)));
         s.utc_offset_min = -725;
         s.dst = Dst::Us;
-        let mut buf = [0u8; 6000];
-        let n = render(&s, &mut buf).expect("fits in 6000");
-        assert!(n < 6000, "{n} bytes");
+        let mut buf = [0u8; 7600];
+        let n = render(&s, &mut buf).expect("fits in 7600");
+        assert!(n < 7600, "{n} bytes");
         let mut buf = [0u8; 6000];
         let n = render_saved(&mut buf).expect("fits");
         assert!(n < 1500, "{n} bytes");
@@ -604,9 +647,97 @@ mod tests {
     #[test]
     fn the_phone_offset_is_filled_only_on_a_tap() {
         let html = page(&Settings::default());
-        // The script is the button's own handler, not code that runs when the page loads.
+        // The offset script is the button's own handler. The page does have a script now, for the
+        // place search, and it must not read the phone's clock on its own.
         assert!(html.contains("onclick=\"utc.value=-new Date().getTimezoneOffset()\""));
-        assert!(!html.contains("<script"));
+        assert_eq!(html.matches("getTimezoneOffset").count(), 1);
+    }
+
+    #[test]
+    fn the_page_has_a_place_search_that_asks_the_lamp_for_its_list() {
+        let html = page(&Settings::default());
+        // The search box comes first in the form and is not posted: it has no name.
+        let q = html.find("<input id=q type=search").expect("search box");
+        assert!(q < html.find("name=place ").unwrap());
+        assert!(!html[q..].split('>').next().unwrap().contains("name="));
+        assert!(html.contains("Find your city"));
+        assert!(html.contains("autocomplete=off autocapitalize=off"));
+        assert!(html.contains("<div id=r></div>"));
+        // The list is fetched from the lamp, lazily: on focus or typing, not when the page loads.
+        assert!(html.contains("x.open('GET','/cities')"));
+        assert!(html.contains("q.onfocus=ld"));
+        assert!(html.contains("Loading places..."));
+        assert!(html.contains("Could not load the list. Enter the coordinates below."));
+        // Picking a place fills every field the post carries.
+        for id in ["place", "lat", "lon", "utc", "dst"] {
+            assert!(html.contains(&format!("g('{id}')")), "{id}");
+        }
+        // The script comes after the form and ends the page.
+        assert!(html.find("</form>").unwrap() < html.find("<script>").unwrap());
+        assert!(html.ends_with("</script>"));
+        // It does not put the markup the other tests count into the page.
+        assert_eq!(html.matches("<script").count(), 1);
+        assert!(!html.contains("<option value=") || html.matches("<option value=").count() == 105 + 4);
+    }
+
+    #[test]
+    fn the_manual_fields_are_in_a_closed_section_and_still_filled_from_the_settings() {
+        let html = page(&london());
+        let open = html.find("<details>").expect("details");
+        assert!(!html.contains("<details open"));
+        let close = html.find("</details>").unwrap();
+        assert!(html[open..].starts_with("<details><summary>Enter coordinates and zone yourself</summary>"));
+        assert!(html.contains("Use this for a village that is not in the list."));
+        let inside = &html[open..close];
+        // The raw coordinates, the zone and the summer-time rule are in it, with what is stored...
+        for needle in [
+            "name=lat inputmode=decimal autocomplete=off value=\"51.51\"",
+            "name=lon inputmode=decimal autocomplete=off value=\"-0.13\"",
+            "<option value=0 selected>UTC+0:00",
+            "<option value=europe selected>Europe and UK",
+            "Use my phone's offset",
+        ] {
+            assert!(inside.contains(needle), "{needle}");
+        }
+        // ...and the place name, the search, and the Wi-Fi fields are outside it.
+        assert!(!inside.contains("name=place "));
+        assert!(!inside.contains("id=q "));
+        assert!(!inside.contains("name=ssid"));
+        assert!(html.find("name=place ").unwrap() < open);
+        assert!(html.find("name=ssid").unwrap() > close);
+    }
+
+    #[test]
+    fn the_script_never_writes_the_markup_or_the_words_other_tests_count() {
+        let html = page(&Settings::default());
+        let script = &html[html.find("<script>").unwrap()..];
+        // `selected` options and `<option value=` are counted over the whole page by other tests.
+        assert!(!script.contains(" selected"));
+        assert!(!script.contains("<option"));
+        // No external assets, and no `</` before the real end of the script.
+        assert!(!script.contains("http://") && !script.contains("https://"));
+        assert_eq!(script.matches("</").count(), 1);
+        // Both of the list's failure messages and the no-match message are plain sentences.
+        assert!(script.contains("No match. Try another spelling"));
+    }
+
+    #[test]
+    fn the_script_reads_the_line_format_the_lamp_serves() {
+        let script = SCRIPT;
+        // Name|Country|lat|lon|utc|dst, split on the bar, one place per line.
+        assert!(script.contains("l.split('|')"));
+        assert!(script.contains("split(/\\r?\\n/)"));
+        // Fields by position: name 0, country 1, lat 2, lon 3, utc 4, dst 5.
+        assert!(script.contains("g('lat').value=e[2]"));
+        assert!(script.contains("g('lon').value=e[3]"));
+        assert!(script.contains("v=e[4]"));
+        assert!(script.contains("g('dst').value=e[5]"));
+        // The four rules named in words.
+        for rule in ["none:", "egypt:", "europe:", "us:"] {
+            assert!(script.contains(rule), "{rule}");
+        }
+        // At most eight matches are shown.
+        assert!(script.contains("m.slice(0,8)"));
     }
 
     #[test]
