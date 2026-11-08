@@ -286,7 +286,9 @@ impl Face {
                 if inverted {
                     let _ = Rectangle::new(
                         Point::new(edge[i], 90),
-                        Size::new((edge[i + 1] - edge[i]) as u32, 25),
+                        // One wider than the gap, to take in the divider's own column: the divider only starts
+                        // two rows down, and without this the corner above it stays white.
+                        Size::new((edge[i + 1] - edge[i] + 1) as u32, 25),
                     )
                     .into_styled(PrimitiveStyle::with_fill(Color::Black))
                     .draw(frame);
