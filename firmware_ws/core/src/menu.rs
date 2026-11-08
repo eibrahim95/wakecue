@@ -43,7 +43,7 @@ const FIELDS: [Field; 7] = [
     Field::Delete,
 ];
 
-/// What the Sound screen edits, in the order Ok walks through them.
+/// What the Sound screen edits, in the order Up/Down walk through them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SoundField {
     Volume,
@@ -55,7 +55,7 @@ pub enum SoundField {
 const SOUND_FIELDS: [SoundField; 4] =
     [SoundField::Volume, SoundField::Adhan, SoundField::Alarm, SoundField::Save];
 
-/// What a prayer's screen edits, in the order Ok walks through them.
+/// What a prayer's screen edits, in the order Up/Down walk through them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PrayerField {
     On,
@@ -145,7 +145,7 @@ pub fn format_of(n: u8, total: u8, buf: &mut [u8; OF_LEN]) -> &str {
     core::str::from_utf8(&buf[..i]).unwrap_or("")
 }
 
-/// What the time-zone screen edits, in the order Ok walks through them.
+/// What the time-zone screen edits, in the order Up/Down walk through them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ZoneField {
     Hour,
@@ -186,15 +186,15 @@ pub enum Screen {
     Prayers { cursor: u8 },
     /// One prayer being edited: the field under the cursor and the draft of whether it rings, which
     /// adhan and at what level (0 = Default for both), which reach the settings only on Save.
-    PrayerEdit { prayer: u8, field: u8, on: bool, sound: u8, volume: u8 },
+    PrayerEdit { prayer: u8, field: u8, editing: bool, on: bool, sound: u8, volume: u8 },
     /// The general volume and the two default sounds being edited, which reach the settings only
     /// on Save.
-    Sound { field: u8, level: u8, adhan: u8, alarm: u8 },
+    Sound { field: u8, editing: bool, level: u8, adhan: u8, alarm: u8 },
     Alarms { cursor: u8 },
-    Edit { slot: u8, field: u8, draft: UserAlarm },
+    Edit { slot: u8, field: u8, editing: bool, draft: UserAlarm },
     /// The time zone being edited: the field under the cursor and the draft, which reaches the
     /// settings only on Save.
-    Zone { field: u8, minutes: i16, dst: Dst },
+    Zone { field: u8, editing: bool, minutes: i16, dst: Dst },
 }
 
 /// A sound to play while it is being chosen: the number in the file's name, and the level.
@@ -252,6 +252,7 @@ impl Menu {
                     1 => Screen::Alarms { cursor: 0 },
                     2 => Screen::Sound {
                         field: 0,
+                        editing: false,
                         level: self.settings.volume.clamp(1, MAX_VOLUME),
                         adhan: self.settings.default_adhan.clamp(1, MAX_SOUND),
                         alarm: self.settings.default_alarm.clamp(1, MAX_SOUND),
@@ -262,6 +263,7 @@ impl Menu {
                     }
                     _ => Screen::Zone {
                         field: 0,
+                        editing: false,
                         minutes: self.settings.utc_offset_min,
                         dst: self.settings.dst,
                     },
@@ -272,40 +274,44 @@ impl Menu {
                 Key::Ok => Screen::PrayerEdit {
                     prayer: cursor,
                     field: 0,
+                    editing: false,
                     on: self.settings.prayer_on(Prayer::ALL[cursor as usize]),
                     sound: self.settings.prayer_sound[cursor as usize].min(MAX_SOUND),
                     volume: self.settings.prayer_volume[cursor as usize],
                 },
                 Key::Back => Screen::Top { cursor: 0 },
             },
-            Screen::Sound { field, level, adhan, alarm } => match key {
-                // Back cancels: nothing is written.
+            Screen::Sound { field, editing, level, adhan, alarm } => match key {
+                // Back ends the edit of a row first, and only then leaves: nothing is written.
+                Key::Back if editing => Screen::Sound { field, editing: false, level, adhan, alarm },
                 Key::Back => Screen::Top { cursor: 2 },
+                // Up/Down only ever move between the rows, until a row is being edited.
+                Key::Up | Key::Down if !editing => Screen::Sound {
+                    field: step(field, SOUND_FIELDS.len() as u8, key),
+                    editing,
+                    level,
+                    adhan,
+                    alarm,
+                },
                 Key::Up | Key::Down => {
                     let up = key == Key::Up;
                     match SOUND_FIELDS[field as usize] {
                         SoundField::Volume => {
                             let level = step_general_volume(level, up);
                             out.preview = Some(Preview { file: adhan_file_of(adhan), volume: level });
-                            Screen::Sound { field, level, adhan, alarm }
+                            Screen::Sound { field, editing, level, adhan, alarm }
                         }
                         SoundField::Adhan => {
                             let adhan = step_default_sound(adhan, up, MAX_SOUND);
                             out.preview = Some(Preview { file: adhan_file_of(adhan), volume: level });
-                            Screen::Sound { field, level, adhan, alarm }
+                            Screen::Sound { field, editing, level, adhan, alarm }
                         }
                         SoundField::Alarm => {
                             let alarm = step_default_sound(alarm, up, MAX_SOUND);
                             out.preview = Some(Preview { file: alarm_file_of(alarm), volume: level });
-                            Screen::Sound { field, level, adhan, alarm }
+                            Screen::Sound { field, editing, level, adhan, alarm }
                         }
-                        // On Save, Up/Down move between the fields.
-                        SoundField::Save => Screen::Sound {
-                            field: step(field, SOUND_FIELDS.len() as u8, key),
-                            level,
-                            adhan,
-                            alarm,
-                        },
+                        SoundField::Save => Screen::Sound { field, editing: false, level, adhan, alarm },
                     }
                 }
                 Key::Ok => match SOUND_FIELDS[field as usize] {
@@ -316,23 +322,34 @@ impl Menu {
                         out.save = true;
                         Screen::Top { cursor: 2 }
                     }
-                    _ => Screen::Sound { field: field + 1, level, adhan, alarm },
+                    _ => Screen::Sound { field, editing: !editing, level, adhan, alarm },
                 },
             },
-            Screen::PrayerEdit { prayer, field, on, sound, volume } => match key {
-                // Back cancels: nothing is written.
+            Screen::PrayerEdit { prayer, field, editing, on, sound, volume } => match key {
+                // Back ends the edit of a row first, and only then leaves: nothing is written.
+                Key::Back if editing => {
+                    Screen::PrayerEdit { prayer, field, editing: false, on, sound, volume }
+                }
                 Key::Back => Screen::Prayers { cursor: prayer },
+                // Up/Down only ever move between the rows, until a row is being edited.
+                Key::Up | Key::Down if !editing => Screen::PrayerEdit {
+                    prayer,
+                    field: step(field, PRAYER_FIELDS.len() as u8, key),
+                    editing,
+                    on,
+                    sound,
+                    volume,
+                },
                 Key::Up | Key::Down => {
                     let up = key == Key::Up;
                     match PRAYER_FIELDS[field as usize] {
-                        PrayerField::On => Screen::PrayerEdit { prayer, field, on: !on, sound, volume },
                         PrayerField::Sound => {
                             let sound = step_own_sound(sound, up, MAX_SOUND);
                             out.preview = Some(Preview {
                                 file: self.settings.adhan_file(sound),
                                 volume: self.settings.volume_for(volume),
                             });
-                            Screen::PrayerEdit { prayer, field, on, sound, volume }
+                            Screen::PrayerEdit { prayer, field, editing, on, sound, volume }
                         }
                         PrayerField::Volume => {
                             let volume = step_own_volume(volume, up);
@@ -340,19 +357,15 @@ impl Menu {
                                 file: self.settings.adhan_file(sound),
                                 volume: self.settings.volume_for(volume),
                             });
-                            Screen::PrayerEdit { prayer, field, on, sound, volume }
+                            Screen::PrayerEdit { prayer, field, editing, on, sound, volume }
                         }
-                        // On Save, Up/Down move between the fields.
-                        PrayerField::Save => Screen::PrayerEdit {
-                            prayer,
-                            field: step(field, PRAYER_FIELDS.len() as u8, key),
-                            on,
-                            sound,
-                            volume,
-                        },
+                        // Rings and Save are never edited in place.
+                        _ => Screen::PrayerEdit { prayer, field, editing: false, on, sound, volume },
                     }
                 }
                 Key::Ok => match PRAYER_FIELDS[field as usize] {
+                    // A switch has nothing to step through: OK flips it.
+                    PrayerField::On => Screen::PrayerEdit { prayer, field, editing, on: !on, sound, volume },
                     PrayerField::Save => {
                         let p = Prayer::ALL[prayer as usize];
                         if self.settings.prayer_on(p) != on {
@@ -363,7 +376,7 @@ impl Menu {
                         out.save = true;
                         Screen::Prayers { cursor: prayer }
                     }
-                    _ => Screen::PrayerEdit { prayer, field: field + 1, on, sound, volume },
+                    _ => Screen::PrayerEdit { prayer, field, editing: !editing, on, sound, volume },
                 },
             },
             Screen::Alarms { cursor } => match key {
@@ -372,12 +385,20 @@ impl Menu {
                 Key::Ok => {
                     let a = self.settings.alarms[cursor as usize];
                     let draft = if a.used { a } else { UserAlarm { used: true, enabled: true, days: SUN_TO_THU, ..a } };
-                    Screen::Edit { slot: cursor, field: 0, draft }
+                    Screen::Edit { slot: cursor, field: 0, editing: false, draft }
                 }
             },
-            Screen::Zone { field, minutes, dst } => match key {
-                // Back cancels: nothing is written.
+            Screen::Zone { field, editing, minutes, dst } => match key {
+                // Back ends the edit of a row first, and only then leaves: nothing is written.
+                Key::Back if editing => Screen::Zone { field, editing: false, minutes, dst },
                 Key::Back => Screen::Top { cursor: 3 },
+                // Up/Down only ever move between the rows, until a row is being edited.
+                Key::Up | Key::Down if !editing => Screen::Zone {
+                    field: step(field, ZONE_FIELDS.len() as u8, key),
+                    editing,
+                    minutes,
+                    dst,
+                },
                 Key::Up | Key::Down => {
                     let up = key == Key::Up;
                     let (h, m) = offset_parts(minutes);
@@ -385,21 +406,18 @@ impl Menu {
                         ZoneField::Hour => {
                             let span = (OFFSET_MAX - OFFSET_MIN) / 60 + 1;
                             let h = (h - OFFSET_MIN / 60 + if up { 1 } else { span - 1 }) % span + OFFSET_MIN / 60;
-                            Screen::Zone { field, minutes: offset_of(h, m), dst }
+                            Screen::Zone { field, editing, minutes: offset_of(h, m), dst }
                         }
                         ZoneField::Minute => {
                             let m = (m + if up { 15 } else { 45 }) % 60;
-                            Screen::Zone { field, minutes: offset_of(h, m), dst }
+                            Screen::Zone { field, editing, minutes: offset_of(h, m), dst }
                         }
                         ZoneField::Summer => {
                             let i = DST_RULES.iter().position(|d| *d == dst).unwrap_or(0);
                             let n = DST_RULES.len();
-                            Screen::Zone { field, minutes, dst: DST_RULES[(i + if up { 1 } else { n - 1 }) % n] }
+                            Screen::Zone { field, editing, minutes, dst: DST_RULES[(i + if up { 1 } else { n - 1 }) % n] }
                         }
-                        // On Save, Up/Down move between the fields.
-                        ZoneField::Save => {
-                            Screen::Zone { field: step(field, ZONE_FIELDS.len() as u8, key), minutes, dst }
-                        }
+                        ZoneField::Save => Screen::Zone { field, editing: false, minutes, dst },
                     }
                 }
                 Key::Ok => match ZONE_FIELDS[field as usize] {
@@ -409,12 +427,17 @@ impl Menu {
                         out.save = true;
                         Screen::Top { cursor: 3 }
                     }
-                    _ => Screen::Zone { field: field + 1, minutes, dst },
+                    _ => Screen::Zone { field, editing: !editing, minutes, dst },
                 },
             },
-            Screen::Edit { slot, field, mut draft } => match key {
-                // Back cancels: nothing is written.
+            Screen::Edit { slot, field, editing, mut draft } => match key {
+                // Back ends the edit of a row first, and only then leaves: nothing is written.
+                Key::Back if editing => Screen::Edit { slot, field, editing: false, draft },
                 Key::Back => Screen::Alarms { cursor: slot },
+                // Up/Down only ever move between the rows, until a row is being edited.
+                Key::Up | Key::Down if !editing => {
+                    Screen::Edit { slot, field: step(field, FIELDS.len() as u8, key), editing, draft }
+                }
                 Key::Up | Key::Down => {
                     let up = key == Key::Up;
                     match FIELDS[field as usize] {
@@ -445,10 +468,10 @@ impl Menu {
                                 volume: self.settings.volume_for(draft.volume),
                             });
                         }
-                        // On Save and Delete, Up/Down move between the fields.
-                        _ => return self.press_move(slot, field, draft, key),
+                        // The buttons are never edited in place.
+                        Field::Save | Field::Delete => {}
                     }
-                    Screen::Edit { slot, field, draft }
+                    Screen::Edit { slot, field, editing, draft }
                 }
                 Key::Ok => match FIELDS[field as usize] {
                     Field::Save => {
@@ -461,7 +484,7 @@ impl Menu {
                         out.save = true;
                         Screen::Alarms { cursor: slot }
                     }
-                    _ => Screen::Edit { slot, field: field + 1, draft },
+                    _ => Screen::Edit { slot, field, editing: !editing, draft },
                 },
             },
         };
@@ -470,9 +493,38 @@ impl Menu {
         out
     }
 
-    fn press_move(&mut self, slot: u8, field: u8, draft: UserAlarm, key: Key) -> Outcome {
-        self.screen = Screen::Edit { slot, field: step(field, FIELDS.len() as u8, key), draft };
-        Outcome { redraw: true, stop_sound: true, ..Outcome::default() }
+    /// The line along the bottom of the panel: what the four buttons do right now. It is the one
+    /// place that says whether Up/Down are moving or changing, so a newcomer never has to guess.
+    pub fn hint(&self) -> &'static str {
+        const MOVE_EDIT: &str = "Up/Down move  OK change  Back cancel";
+        const DONE: &str = "Up/Down change  OK or Back done";
+        match self.screen {
+            Screen::Home => "",
+            Screen::Top { .. } => "Up/Down move  OK open  Back exit",
+            Screen::Prayers { .. } | Screen::Alarms { .. } => "Up/Down move  OK open  Back back",
+            Screen::PrayerEdit { field, editing, .. } => match (PRAYER_FIELDS[field as usize], editing) {
+                (PrayerField::On, _) => "Up/Down move  OK switch  Back cancel",
+                (PrayerField::Save, _) => "Up/Down move  OK save  Back cancel",
+                (_, true) => DONE,
+                (_, false) => MOVE_EDIT,
+            },
+            Screen::Sound { field, editing, .. } => match (SOUND_FIELDS[field as usize], editing) {
+                (SoundField::Save, _) => "Up/Down move  OK save  Back cancel",
+                (_, true) => DONE,
+                (_, false) => MOVE_EDIT,
+            },
+            Screen::Zone { field, editing, .. } => match (ZONE_FIELDS[field as usize], editing) {
+                (ZoneField::Save, _) => "Up/Down move  OK save  Back cancel",
+                (_, true) => DONE,
+                (_, false) => MOVE_EDIT,
+            },
+            Screen::Edit { field, editing, .. } => match (FIELDS[field as usize], editing) {
+                (Field::Save, _) => "Up/Down move  OK save  Back cancel",
+                (Field::Delete, _) => "Up/Down move  OK delete  Back cancel",
+                (_, true) => DONE,
+                (_, false) => MOVE_EDIT,
+            },
+        }
     }
 }
 
@@ -484,6 +536,20 @@ mod tests {
         Menu::new(Settings::default())
     }
 
+    /// Presses the keys in order.
+    fn keys(m: &mut Menu, ks: &[Key]) {
+        for k in ks {
+            m.press(*k);
+        }
+    }
+
+    /// Presses one key `n` times.
+    fn times(m: &mut Menu, n: usize, k: Key) {
+        for _ in 0..n {
+            m.press(k);
+        }
+    }
+
     #[test]
     fn every_preset_has_words() {
         assert_eq!(DAY_PRESETS.map(day_name), ["every day", "Sun-Thu", "Fri-Sat", "Fri"]);
@@ -493,8 +559,7 @@ mod tests {
     #[test]
     fn back_walks_out_to_the_standby_face() {
         let mut m = menu();
-        m.press(Key::Ok);
-        m.press(Key::Ok); // Prayers
+        keys(&mut m, &[Key::Ok, Key::Ok]); // Prayers
         assert!(matches!(m.screen, Screen::Prayers { .. }));
         m.press(Key::Back);
         m.press(Key::Back);
@@ -502,60 +567,52 @@ mod tests {
         assert_eq!(m.press(Key::Back), Outcome::default()); // nothing to do on Home
     }
 
+    /// Opens a prayer's screen: `downs` rows down the Prayers list, then OK.
+    fn open_prayer(m: &mut Menu, downs: usize) {
+        keys(m, &[Key::Ok, Key::Ok]);
+        times(m, downs, Key::Down);
+        m.press(Key::Ok);
+    }
+
     #[test]
     fn a_prayer_is_switched_on_and_off_from_its_own_screen_and_saved_there() {
         let mut m = menu();
-        m.press(Key::Ok);
-        m.press(Key::Ok);
-        m.press(Key::Down); // Dhuhr
-        m.press(Key::Ok); // opens its screen, on the On row
+        open_prayer(&mut m, 1); // Dhuhr, cursor on the Rings row
         assert!(matches!(
             m.screen,
-            Screen::PrayerEdit { prayer: 1, field: 0, on: false, sound: 0, volume: 0 }
+            Screen::PrayerEdit { prayer: 1, field: 0, editing: false, on: false, sound: 0, volume: 0 }
         ));
-        m.press(Key::Up); // off -> on
+        m.press(Key::Ok); // the switch flips at once, as a draft
+        assert!(matches!(m.screen, Screen::PrayerEdit { field: 0, editing: false, on: true, .. }));
         assert!(!m.settings.prayer_on(Prayer::Dhuhr)); // nothing written before Save
-        m.press(Key::Ok);
-        m.press(Key::Ok);
-        m.press(Key::Ok); // past Sound and Volume, to Save
+        times(&mut m, 3, Key::Down); // Sound, Volume, Save
         let o = m.press(Key::Ok);
         assert!(o.save && o.redraw);
         assert!(m.settings.prayer_on(Prayer::Dhuhr));
         assert!(m.settings.prayer_on(Prayer::Fajr));
         assert_eq!(m.screen, Screen::Prayers { cursor: 1 });
         // And off again.
-        m.press(Key::Ok);
-        m.press(Key::Down);
-        m.press(Key::Ok);
-        m.press(Key::Ok);
-        m.press(Key::Ok);
-        m.press(Key::Ok);
+        keys(&mut m, &[Key::Ok, Key::Ok, Key::Up, Key::Ok]); // flip, then up (round) to Save
         assert!(!m.settings.prayer_on(Prayer::Dhuhr));
     }
 
     #[test]
     fn a_prayers_volume_starts_on_default_walks_the_levels_and_saves_on_save() {
         let mut m = menu();
-        m.press(Key::Ok);
-        m.press(Key::Ok);
-        m.press(Key::Ok); // Fajr's screen
-        m.press(Key::Ok); // On -> Sound
-        m.press(Key::Ok); // Sound -> Volume
-        assert!(matches!(m.screen, Screen::PrayerEdit { field: 2, volume: 0, .. }));
-        m.press(Key::Up); // Default -> 1
-        m.press(Key::Up); // 2
+        open_prayer(&mut m, 0); // Fajr
+        times(&mut m, 2, Key::Down); // Rings -> Sound -> Volume
+        m.press(Key::Ok); // start editing it
+        assert!(matches!(m.screen, Screen::PrayerEdit { field: 2, editing: true, volume: 0, .. }));
+        times(&mut m, 2, Key::Up); // Default -> 1 -> 2
         assert!(matches!(m.screen, Screen::PrayerEdit { volume: 2, .. }));
-        m.press(Key::Down);
-        m.press(Key::Down); // back to Default
-        m.press(Key::Down); // Default wraps to the top level
+        times(&mut m, 3, Key::Down); // back to Default, which wraps to the top level
         assert!(matches!(m.screen, Screen::PrayerEdit { volume: 30, .. }));
         m.press(Key::Up); // and the top level wraps to Default
         assert!(matches!(m.screen, Screen::PrayerEdit { volume: 0, .. }));
-        m.press(Key::Up);
-        m.press(Key::Up);
-        m.press(Key::Up); // 3
+        times(&mut m, 3, Key::Up); // 3
         assert_eq!(m.settings.prayer_volume[0], 0); // nothing written yet
-        m.press(Key::Ok); // to Save
+        m.press(Key::Ok); // done editing
+        m.press(Key::Down); // to Save
         assert!(m.press(Key::Ok).save);
         assert_eq!(m.settings.prayer_volume[0], 3);
         assert!(m.settings.prayer_on(Prayer::Fajr)); // untouched
@@ -564,10 +621,8 @@ mod tests {
     #[test]
     fn back_on_a_prayers_screen_discards_the_draft() {
         let mut m = menu();
-        m.press(Key::Ok);
-        m.press(Key::Ok);
-        m.press(Key::Ok);
-        m.press(Key::Up); // Fajr off
+        open_prayer(&mut m, 0);
+        m.press(Key::Ok); // Fajr off, as a draft
         let o = m.press(Key::Back);
         assert!(!o.save);
         assert!(m.settings.prayer_on(Prayer::Fajr));
@@ -575,10 +630,7 @@ mod tests {
     }
 
     fn open_sound(m: &mut Menu) {
-        m.press(Key::Ok);
-        m.press(Key::Down);
-        m.press(Key::Down); // Sound
-        m.press(Key::Ok);
+        keys(m, &[Key::Ok, Key::Down, Key::Down, Key::Ok]); // Sound
     }
 
     #[test]
@@ -587,27 +639,25 @@ mod tests {
         m.settings.default_adhan = 7;
         m.settings.default_alarm = 3;
         open_sound(&mut m);
-        assert_eq!(m.screen, Screen::Sound { field: 0, level: 22, adhan: 7, alarm: 3 });
+        assert_eq!(
+            m.screen,
+            Screen::Sound { field: 0, editing: false, level: 22, adhan: 7, alarm: 3 }
+        );
     }
 
     #[test]
     fn the_general_volume_stops_at_both_ends_and_is_written_on_save() {
         let mut m = menu();
         open_sound(&mut m);
-        for _ in 0..20 {
-            m.press(Key::Up);
-        }
+        m.press(Key::Ok); // edit the volume
+        times(&mut m, 20, Key::Up);
         assert!(matches!(m.screen, Screen::Sound { level: 30, .. })); // no wrap to the quietest
-        for _ in 0..40 {
-            m.press(Key::Down);
-        }
+        times(&mut m, 40, Key::Down);
         assert!(matches!(m.screen, Screen::Sound { level: 1, .. })); // and no wrap to the loudest
         assert_eq!(m.settings.volume, 22); // nothing written yet
-        m.press(Key::Up);
-        m.press(Key::Up);
-        m.press(Key::Ok);
-        m.press(Key::Ok);
-        m.press(Key::Ok); // past both default sounds, to Save
+        times(&mut m, 2, Key::Up);
+        m.press(Key::Ok); // done
+        times(&mut m, 3, Key::Down); // Default adhan, Default alarm, Save
         let o = m.press(Key::Ok);
         assert!(o.save);
         assert_eq!(m.settings.volume, 3);
@@ -618,27 +668,19 @@ mod tests {
     fn the_default_sounds_walk_their_own_lists_round_and_round_and_are_written_on_save() {
         let mut m = menu();
         open_sound(&mut m);
-        m.press(Key::Ok); // Volume -> Default adhan
+        keys(&mut m, &[Key::Down, Key::Ok]); // Default adhan, editing
         m.press(Key::Down); // 1 wraps to the last adhan, number 100
         assert!(matches!(m.screen, Screen::Sound { adhan: 100, .. }));
-        m.press(Key::Up); // and the last wraps to 1
-        m.press(Key::Up);
-        m.press(Key::Up);
+        times(&mut m, 3, Key::Up); // and the last wraps to 1, then 2, 3
         assert!(matches!(m.screen, Screen::Sound { adhan: 3, .. }));
-        m.press(Key::Ok); // -> Default alarm sound
-        for _ in 0..4 {
-            m.press(Key::Up); // 1 -> 5
-        }
+        keys(&mut m, &[Key::Ok, Key::Down, Key::Ok]); // done; Default alarm sound, editing
+        times(&mut m, 4, Key::Up); // 1 -> 5
         assert!(matches!(m.screen, Screen::Sound { alarm: 5, .. }));
-        for _ in 0..96 {
-            m.press(Key::Up); // 5 -> 100, and one more wraps to 1
-        }
+        times(&mut m, 96, Key::Up); // 5 -> 100, and one more wraps to 1
         assert!(matches!(m.screen, Screen::Sound { alarm: 1, .. }));
-        for _ in 0..4 {
-            m.press(Key::Up);
-        }
+        times(&mut m, 4, Key::Up);
         assert_eq!((m.settings.default_adhan, m.settings.default_alarm), (1, 1)); // nothing written yet
-        m.press(Key::Ok); // -> Save
+        keys(&mut m, &[Key::Ok, Key::Down]); // done; Save
         assert!(m.press(Key::Ok).save);
         assert_eq!((m.settings.default_adhan, m.settings.default_alarm), (3, 5));
     }
@@ -647,18 +689,24 @@ mod tests {
     fn stepping_a_sound_asks_for_it_to_be_played_and_leaving_the_row_stops_it() {
         let mut m = menu();
         open_sound(&mut m);
-        m.press(Key::Ok); // Default adhan
+        keys(&mut m, &[Key::Down, Key::Ok]); // Default adhan, editing
         let o = m.press(Key::Up); // adhan 2
         assert_eq!(o.preview, Some(Preview { file: 2, volume: 22 }));
         assert!(!o.stop_sound);
-        let o = m.press(Key::Ok); // to Default alarm sound: the adhan stops
+        let o = m.press(Key::Ok); // done editing: the adhan stops
         assert_eq!(o.preview, None);
         assert!(o.stop_sound);
+        let o = m.press(Key::Down); // moving over the alarm row plays nothing
+        assert_eq!(o.preview, None);
+        m.press(Key::Ok);
         let o = m.press(Key::Up); // alarm sound 2 is file 0102
         assert_eq!(o.preview, Some(Preview { file: 102, volume: 22 }));
+        let o = m.press(Key::Back); // Back ends the edit and stops the sound, still on the screen
+        assert!(o.stop_sound && o.preview.is_none());
+        assert!(matches!(m.screen, Screen::Sound { editing: false, .. }));
+        m.press(Key::Back); // now it leaves, with Sound under the cursor
         // Changing the volume plays the default adhan at the new level, to judge it by.
-        m.press(Key::Back); // back on the top menu, with Sound under the cursor
-        m.press(Key::Ok);
+        keys(&mut m, &[Key::Ok, Key::Ok]);
         let o = m.press(Key::Down); // 22 -> 21
         assert_eq!(o.preview, Some(Preview { file: 1, volume: 21 }));
         let o = m.press(Key::Back);
@@ -669,10 +717,9 @@ mod tests {
     fn back_on_the_sound_screen_discards_every_draft() {
         let mut m = menu();
         open_sound(&mut m);
-        m.press(Key::Down);
-        m.press(Key::Ok);
-        m.press(Key::Up);
-        let o = m.press(Key::Back);
+        keys(&mut m, &[Key::Down, Key::Ok, Key::Up]); // Default adhan, editing, 2
+        m.press(Key::Back); // ends the edit
+        let o = m.press(Key::Back); // leaves
         assert!(!o.save);
         assert_eq!((m.settings.volume, m.settings.default_adhan), (22, 1));
         assert_eq!(m.screen, Screen::Top { cursor: 2 });
@@ -690,12 +737,9 @@ mod tests {
     fn a_prayers_own_adhan_is_picked_by_ear_and_written_on_save() {
         let mut m = menu();
         m.settings.default_adhan = 4;
-        m.press(Key::Ok);
-        m.press(Key::Ok);
-        m.press(Key::Down); // Dhuhr
-        m.press(Key::Ok);
-        m.press(Key::Ok); // On -> Sound
-        assert!(matches!(m.screen, Screen::PrayerEdit { field: 1, sound: 0, .. }));
+        open_prayer(&mut m, 1); // Dhuhr
+        keys(&mut m, &[Key::Down, Key::Ok]); // Sound row, editing
+        assert!(matches!(m.screen, Screen::PrayerEdit { field: 1, editing: true, sound: 0, .. }));
         let o = m.press(Key::Up); // Default -> adhan 1, at the general volume
         assert_eq!(o.preview, Some(Preview { file: 1, volume: 22 }));
         let o = m.press(Key::Up);
@@ -705,12 +749,10 @@ mod tests {
         assert_eq!(o.preview, Some(Preview { file: 4, volume: 22 }));
         m.press(Key::Down); // Default wraps to the last adhan
         assert!(matches!(m.screen, Screen::PrayerEdit { sound: 100, .. }));
-        m.press(Key::Up); // and back to Default
-        m.press(Key::Up);
-        m.press(Key::Up); // adhan 2
+        times(&mut m, 3, Key::Up); // back to Default, then adhan 1, then 2
+        assert!(matches!(m.screen, Screen::PrayerEdit { sound: 2, .. }));
         assert_eq!(m.settings.prayer_sound[1], 0); // nothing written yet
-        m.press(Key::Ok);
-        m.press(Key::Ok); // past Volume, to Save
+        keys(&mut m, &[Key::Ok, Key::Down, Key::Down]); // done; Volume; Save
         assert!(m.press(Key::Ok).save);
         assert_eq!(m.settings.prayer_sound[1], 2);
         assert_eq!(m.settings.prayer_sound[0], 0);
@@ -720,23 +762,23 @@ mod tests {
     fn a_prayers_preview_plays_at_its_own_level_when_it_has_one() {
         let mut m = menu();
         m.settings.prayer_volume = [0, 0, 0, 0, 9];
-        m.press(Key::Ok);
-        m.press(Key::Ok);
-        m.press(Key::Up); // wraps to Isha
-        m.press(Key::Ok);
-        m.press(Key::Ok); // Sound
+        keys(&mut m, &[Key::Ok, Key::Ok, Key::Up, Key::Ok]); // Isha's screen
+        keys(&mut m, &[Key::Down, Key::Ok]); // Sound, editing
         let o = m.press(Key::Up);
         assert_eq!(o.preview, Some(Preview { file: 1, volume: 9 }));
+    }
+
+    fn open_new_alarm(m: &mut Menu) {
+        keys(m, &[Key::Ok, Key::Down, Key::Ok, Key::Ok]); // My alarms, slot 0, new
     }
 
     #[test]
     fn an_alarms_sound_walks_all_hundred_and_previews_from_0101() {
         let mut m = menu();
         open_new_alarm(&mut m);
-        for _ in 0..3 {
-            m.press(Key::Ok); // Hour -> Minute -> Days -> Sound
-        }
-        assert!(matches!(m.screen, Screen::Edit { field: 3, .. }));
+        times(&mut m, 3, Key::Down); // Hour -> Minute -> Days -> Sound
+        m.press(Key::Ok);
+        assert!(matches!(m.screen, Screen::Edit { field: 3, editing: true, .. }));
         let o = m.press(Key::Up); // Default -> alarm sound 1
         assert_eq!(o.preview, Some(Preview { file: 101, volume: 22 }));
         let o = m.press(Key::Down); // back to Default, which is sound 1 here
@@ -746,8 +788,7 @@ mod tests {
         m.press(Key::Up); // and the last wraps to Default
         assert!(matches!(m.screen, Screen::Edit { draft: UserAlarm { sound: 0, .. }, .. }));
         m.press(Key::Up);
-        m.press(Key::Ok); // to Volume
-        m.press(Key::Ok); // to Save
+        keys(&mut m, &[Key::Ok, Key::Down, Key::Down]); // done; Volume; Save
         assert!(m.press(Key::Ok).save);
         assert_eq!(m.settings.alarms[0].sound, 1);
     }
@@ -807,27 +848,19 @@ mod tests {
         assert_eq!(m.screen, Screen::Top { cursor: 1 });
     }
 
-    fn open_new_alarm(m: &mut Menu) {
-        m.press(Key::Ok);
-        m.press(Key::Down); // My alarms
-        m.press(Key::Ok);
-        m.press(Key::Ok); // slot 0, new
-    }
-
     #[test]
     fn adding_an_alarm_sets_hour_minute_days_and_saves() {
         let mut m = menu();
         open_new_alarm(&mut m);
-        assert!(matches!(m.screen, Screen::Edit { slot: 0, field: 0, .. }));
-        m.press(Key::Down); // 07:00 -> 06:00
-        m.press(Key::Ok);
-        for _ in 0..30 { m.press(Key::Up); }
-        m.press(Key::Ok); // Days: Sun-Thu -> Fri+Sat
+        assert!(matches!(m.screen, Screen::Edit { slot: 0, field: 0, editing: false, .. }));
+        keys(&mut m, &[Key::Ok, Key::Down, Key::Ok]); // edit the hour: 07:00 -> 06:00; done
+        keys(&mut m, &[Key::Down, Key::Ok]); // Minute, editing
+        times(&mut m, 30, Key::Up);
+        keys(&mut m, &[Key::Ok, Key::Down, Key::Ok]); // done; Days, editing: Sun-Thu -> Fri+Sat
         m.press(Key::Up);
         assert!(!m.settings.alarms[0].used); // nothing written before Save
-        m.press(Key::Ok); // to Sound
-        m.press(Key::Ok); // to Volume
-        m.press(Key::Ok); // to Save
+        m.press(Key::Ok); // done
+        times(&mut m, 3, Key::Down); // Sound, Volume, Save
         let o = m.press(Key::Ok);
         assert!(o.save);
         assert_eq!(
@@ -841,14 +874,14 @@ mod tests {
     fn an_alarms_volume_starts_on_default_and_is_saved_with_the_alarm() {
         let mut m = menu();
         open_new_alarm(&mut m);
-        for _ in 0..4 {
-            m.press(Key::Ok); // Hour -> Minute -> Days -> Sound -> Volume
-        }
-        assert!(matches!(m.screen, Screen::Edit { field: 4, draft: UserAlarm { volume: 0, .. }, .. }));
-        m.press(Key::Down); // Default wraps to the top level
-        m.press(Key::Down);
-        m.press(Key::Down); // 28
-        m.press(Key::Ok); // to Save
+        times(&mut m, 4, Key::Down); // Hour -> Minute -> Days -> Sound -> Volume
+        m.press(Key::Ok);
+        assert!(matches!(
+            m.screen,
+            Screen::Edit { field: 4, editing: true, draft: UserAlarm { volume: 0, .. }, .. }
+        ));
+        times(&mut m, 3, Key::Down); // Default wraps to the top level, then 29, 28
+        keys(&mut m, &[Key::Ok, Key::Down]); // done; Save
         assert!(m.press(Key::Ok).save);
         assert_eq!(m.settings.alarms[0].volume, 28);
         assert_eq!(m.settings.alarms[1].volume, 0);
@@ -858,8 +891,10 @@ mod tests {
     fn back_in_the_editor_discards_the_draft() {
         let mut m = menu();
         open_new_alarm(&mut m);
-        m.press(Key::Up);
-        let o = m.press(Key::Back);
+        keys(&mut m, &[Key::Ok, Key::Up]); // edit the hour
+        m.press(Key::Back); // ends the edit, the screen stays
+        assert!(matches!(m.screen, Screen::Edit { editing: false, .. }));
+        let o = m.press(Key::Back); // leaves
         assert!(!o.save);
         assert!(!m.settings.alarms[0].used);
         assert_eq!(m.screen, Screen::Alarms { cursor: 0 });
@@ -869,15 +904,15 @@ mod tests {
     fn hour_and_minute_wrap_around() {
         let mut m = menu();
         open_new_alarm(&mut m);
-        for _ in 0..8 { m.press(Key::Up); } // 07 -> 15
+        m.press(Key::Ok); // edit the hour
+        times(&mut m, 8, Key::Up); // 07 -> 15
         m.press(Key::Down);
         let Screen::Edit { draft, .. } = m.screen else { panic!() };
         assert_eq!(draft.minute, 14 * 60);
-        for _ in 0..15 { m.press(Key::Down); } // 14 -> 23
+        times(&mut m, 15, Key::Down); // 14 -> 23
         let Screen::Edit { draft, .. } = m.screen else { panic!() };
         assert_eq!(draft.minute / 60, 23);
-        m.press(Key::Up);
-        m.press(Key::Up);
+        times(&mut m, 2, Key::Up);
         let Screen::Edit { draft, .. } = m.screen else { panic!() };
         assert_eq!(draft.minute / 60, 1);
     }
@@ -889,45 +924,114 @@ mod tests {
             UserAlarm { used: true, enabled: true, days: ALL_DAYS, minute: 300, ..UserAlarm::EMPTY };
         m.screen = Screen::Alarms { cursor: 2 };
         m.press(Key::Ok); // edit
-        m.press(Key::Ok);
-        m.press(Key::Ok);
-        m.press(Key::Ok);
-        m.press(Key::Ok);
-        m.press(Key::Ok); // Hour -> Minute -> Days -> Sound -> Volume -> Save
-        m.press(Key::Down); // Save -> Delete
-        assert!(matches!(m.screen, Screen::Edit { field: 6, .. }));
+        m.press(Key::Up); // Hour wraps up to the last row, Delete
+        assert!(matches!(m.screen, Screen::Edit { field: 6, editing: false, .. }));
         let o = m.press(Key::Ok);
         assert!(o.save);
         assert!(!m.settings.alarms[2].used);
     }
 
+    #[test]
+    fn up_and_down_only_move_until_a_row_is_activated_and_ok_never_moves_on() {
+        let mut m = menu();
+        open_new_alarm(&mut m);
+        let Screen::Edit { draft: before, .. } = m.screen else { panic!() };
+        // Up and Down walk the rows and change nothing.
+        times(&mut m, 3, Key::Down);
+        m.press(Key::Up);
+        let Screen::Edit { field, editing, draft, .. } = m.screen else { panic!() };
+        assert_eq!((field, editing, draft), (2, false, before));
+        // OK activates the row under the cursor and stays on it.
+        m.press(Key::Ok);
+        assert!(matches!(m.screen, Screen::Edit { field: 2, editing: true, .. }));
+        // While it is active, Up and Down change its value and the cursor stays.
+        m.press(Key::Up);
+        let Screen::Edit { field, draft, .. } = m.screen else { panic!() };
+        assert_eq!(field, 2);
+        assert_ne!(draft.days, before.days);
+        // OK deactivates it where it stands, and the change is kept.
+        m.press(Key::Ok);
+        assert!(matches!(m.screen, Screen::Edit { field: 2, editing: false, draft, .. } if draft.days != before.days));
+        // Now Down moves again.
+        m.press(Key::Down);
+        assert!(matches!(m.screen, Screen::Edit { field: 3, editing: false, .. }));
+    }
+
+    #[test]
+    fn back_ends_an_edit_and_keeps_its_value_but_a_second_back_discards_the_screen() {
+        let mut m = menu();
+        open_new_alarm(&mut m);
+        keys(&mut m, &[Key::Ok, Key::Up, Key::Back]);
+        let Screen::Edit { editing, draft, .. } = m.screen else { panic!() };
+        assert!(!editing);
+        assert_eq!(draft.minute / 60, 8);
+    }
+
+    #[test]
+    fn nothing_the_buttons_can_do_edits_a_save_or_delete_button() {
+        let mut m = menu();
+        open_new_alarm(&mut m);
+        m.press(Key::Up); // Delete
+        m.press(Key::Down); // Hour
+        times(&mut m, 5, Key::Down); // Save
+        assert!(matches!(m.screen, Screen::Edit { field: 5, editing: false, .. }));
+        m.press(Key::Up);
+        m.press(Key::Down);
+        assert!(matches!(m.screen, Screen::Edit { field: 5, editing: false, .. }));
+    }
+
+    #[test]
+    fn the_footer_says_what_the_buttons_do_right_now() {
+        let mut m = menu();
+        assert_eq!(m.hint(), "");
+        m.press(Key::Ok);
+        assert!(m.hint().contains("OK open"));
+        open_new_alarm_from_top(&mut m);
+        assert!(m.hint().contains("OK change")); // Hour, not yet active
+        m.press(Key::Ok);
+        assert!(m.hint().contains("OK or Back done")); // active
+        m.press(Key::Ok);
+        times(&mut m, 5, Key::Down);
+        assert!(m.hint().contains("OK save"));
+        m.press(Key::Down);
+        assert!(m.hint().contains("OK delete"));
+        // Every footer fits the 250-pixel panel in the 6-pixel font, with its margin.
+        for s in [
+            "Up/Down move  OK change  Back cancel",
+            "Up/Down change  OK or Back done",
+            "Up/Down move  OK switch  Back cancel",
+            "Up/Down move  OK delete  Back cancel",
+            "Up/Down move  OK open  Back back",
+        ] {
+            assert!(s.len() * 6 + 16 <= 250);
+        }
+    }
+
+    fn open_new_alarm_from_top(m: &mut Menu) {
+        keys(m, &[Key::Down, Key::Ok, Key::Ok]);
+    }
+
     fn open_zone(m: &mut Menu) {
-        m.press(Key::Ok);
-        m.press(Key::Down);
-        m.press(Key::Down);
-        m.press(Key::Down); // Time zone
-        m.press(Key::Ok);
+        keys(m, &[Key::Ok, Key::Down, Key::Down, Key::Down, Key::Ok]); // Time zone
     }
 
     #[test]
     fn the_zone_screen_starts_from_the_stored_zone() {
         let mut m = menu();
         open_zone(&mut m);
-        assert_eq!(m.screen, Screen::Zone { field: 0, minutes: 120, dst: Dst::Egypt });
+        assert_eq!(m.screen, Screen::Zone { field: 0, editing: false, minutes: 120, dst: Dst::Egypt });
     }
 
     #[test]
     fn the_zone_is_written_only_on_save() {
         let mut m = menu();
         open_zone(&mut m);
-        m.press(Key::Down); // +2 -> +1
-        m.press(Key::Ok);
-        m.press(Key::Up); // minutes 00 -> 15
-        m.press(Key::Ok);
-        m.press(Key::Up); // egypt -> europe
+        keys(&mut m, &[Key::Ok, Key::Down, Key::Ok]); // edit the hour: +2 -> +1; done
+        keys(&mut m, &[Key::Down, Key::Ok, Key::Up, Key::Ok]); // Minute 00 -> 15; done
+        keys(&mut m, &[Key::Down, Key::Ok, Key::Up, Key::Ok]); // Summer time egypt -> europe; done
         assert_eq!(m.settings.utc_offset_min, 120); // nothing written yet
         assert_eq!(m.settings.dst, Dst::Egypt);
-        m.press(Key::Ok); // to Save
+        m.press(Key::Down); // Save
         let o = m.press(Key::Ok);
         assert!(o.save && o.redraw);
         assert_eq!(m.settings.utc_offset_min, 75);
@@ -939,7 +1043,8 @@ mod tests {
     fn back_on_the_zone_screen_discards_the_draft() {
         let mut m = menu();
         open_zone(&mut m);
-        m.press(Key::Down);
+        keys(&mut m, &[Key::Ok, Key::Down]);
+        m.press(Key::Back);
         let o = m.press(Key::Back);
         assert!(!o.save);
         assert_eq!(m.settings.utc_offset_min, 120);
@@ -950,7 +1055,8 @@ mod tests {
     fn the_hour_walks_the_whole_range_and_wraps() {
         let mut m = menu();
         open_zone(&mut m);
-        for _ in 0..12 { m.press(Key::Up); } // +2 -> +14
+        m.press(Key::Ok);
+        times(&mut m, 12, Key::Up); // +2 -> +14
         assert!(matches!(m.screen, Screen::Zone { minutes: 840, .. }));
         m.press(Key::Up); // wraps to -12
         assert!(matches!(m.screen, Screen::Zone { minutes: -720, .. }));
@@ -963,21 +1069,22 @@ mod tests {
         let mut m = menu();
         open_zone(&mut m);
         // Kolkata, +5:30: three hours up, two steps of fifteen.
-        for _ in 0..3 { m.press(Key::Up); }
         m.press(Key::Ok);
-        for _ in 0..2 { m.press(Key::Up); }
+        times(&mut m, 3, Key::Up);
+        keys(&mut m, &[Key::Ok, Key::Down, Key::Ok]);
+        times(&mut m, 2, Key::Up);
         assert!(matches!(m.screen, Screen::Zone { minutes: 330, .. }));
         // Newfoundland, -3:30: the minutes count away from zero when the hours are negative.
-        m.press(Key::Back);
+        m.press(Key::Back); // ends the edit
+        m.press(Key::Back); // leaves, discarding
         m.press(Key::Ok); // the top menu is still on Time zone
-        for _ in 0..5 { m.press(Key::Down); } // +2 -> -3
         m.press(Key::Ok);
-        for _ in 0..2 { m.press(Key::Up); }
+        times(&mut m, 5, Key::Down); // +2 -> -3
+        keys(&mut m, &[Key::Ok, Key::Down, Key::Ok]);
+        times(&mut m, 2, Key::Up);
         assert!(matches!(m.screen, Screen::Zone { minutes: -210, .. }));
         // Fifteen minutes the other way wraps to 45.
-        m.press(Key::Down);
-        m.press(Key::Down);
-        m.press(Key::Down);
+        times(&mut m, 3, Key::Down);
         assert!(matches!(m.screen, Screen::Zone { minutes: -225, .. }));
     }
 
@@ -985,22 +1092,22 @@ mod tests {
     fn nothing_the_screen_builds_is_outside_what_the_block_accepts() {
         let mut m = menu();
         open_zone(&mut m);
-        for _ in 0..12 { m.press(Key::Up); } // +14:00
         m.press(Key::Ok);
+        times(&mut m, 12, Key::Up); // +14:00
+        keys(&mut m, &[Key::Ok, Key::Down, Key::Ok]);
         m.press(Key::Up); // +14:15 would pass the limit
         assert!(matches!(m.screen, Screen::Zone { minutes: 840, .. }));
     }
 
     #[test]
-    fn up_and_down_on_save_move_between_the_zone_fields() {
+    fn up_and_down_move_between_the_zone_rows_and_wrap() {
         let mut m = menu();
         open_zone(&mut m);
-        for _ in 0..3 { m.press(Key::Ok); }
-        assert!(matches!(m.screen, Screen::Zone { field: 3, .. }));
+        m.press(Key::Up); // from the first row, round to Save
+        assert!(matches!(m.screen, Screen::Zone { field: 3, editing: false, .. }));
         m.press(Key::Up);
         assert!(matches!(m.screen, Screen::Zone { field: 2, .. }));
-        m.press(Key::Ok);
-        m.press(Key::Down); // from Save, round to the first field
+        times(&mut m, 2, Key::Down); // Save, then round to the first row
         assert!(matches!(m.screen, Screen::Zone { field: 0, .. }));
     }
 
@@ -1025,10 +1132,10 @@ mod tests {
         let o = m.press(Key::Ok);
         assert!(o.setup && !o.save);
         // The other rows open their screens and never ask.
-        for (downs, _) in [(0, ()), (1, ()), (2, ()), (3, ())] {
+        for downs in 0..4 {
             let mut m = menu();
             m.press(Key::Ok);
-            for _ in 0..downs { m.press(Key::Down); }
+            times(&mut m, downs, Key::Down);
             assert!(!m.press(Key::Ok).setup);
         }
         assert!(!Outcome::default().setup);

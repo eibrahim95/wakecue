@@ -396,7 +396,7 @@ impl Face {
                     let _ = Text::new(v, Point::new(160, y), small).draw(frame);
                 }
             }
-            Screen::PrayerEdit { prayer, field, on, sound, volume } => {
+            Screen::PrayerEdit { prayer, field, editing, on, sound, volume } => {
                 let _ = Text::new(Prayer::ALL[prayer as usize].name(), Point::new(14, 18), small)
                     .draw(frame);
                 let mut s_buf = [0u8; VOLUME_LEN];
@@ -405,18 +405,14 @@ impl Face {
                     ("Rings", if on { "on" } else { "off" }),
                     ("Sound", format_choice(sound, menu.settings.default_adhan, &mut s_buf)),
                     ("Volume", format_volume(volume, menu.settings.volume, &mut v_buf)),
-                    ("Save", ""),
                 ];
                 for (i, (label, value)) in rows.into_iter().enumerate() {
-                    let y = 38 + i as i32 * 18;
-                    if i as u8 == field {
-                        let _ = Text::new(">", Point::new(12, y), small).draw(frame);
-                    }
-                    let _ = Text::new(label, Point::new(28, y), small).draw(frame);
-                    let _ = Text::new(value, Point::new(96, y), small).draw(frame);
+                    let y = 36 + i as i32 * 16;
+                    draw_row(frame, y, label, value, "", 96, i as u8 == field, editing);
                 }
+                draw_button(frame, 36 + 3 * 16 + 4, "Save", field == 3);
             }
-            Screen::Sound { field, level, adhan, alarm } => {
+            Screen::Sound { field, editing, level, adhan, alarm } => {
                 let _ = Text::new("Sound", Point::new(14, 18), small).draw(frame);
                 let mut l_buf = [0u8; OF_LEN];
                 let mut a_buf = [0u8; OF_LEN];
@@ -425,23 +421,20 @@ impl Face {
                     ("Volume", format_of(level, MAX_VOLUME, &mut l_buf)),
                     ("Default adhan", format_of(adhan, MAX_SOUND, &mut a_buf)),
                     ("Default alarm", format_of(alarm, MAX_SOUND, &mut b_buf)),
-                    ("Save", ""),
                 ];
                 for (i, (label, value)) in rows.into_iter().enumerate() {
                     let y = 38 + i as i32 * 20;
-                    if i as u8 == field {
-                        let _ = Text::new(">", Point::new(12, y), small).draw(frame);
-                    }
-                    let _ = Text::new(label, Point::new(28, y), small).draw(frame);
-                    let _ = Text::new(value, Point::new(130, y), small).draw(frame);
+                    draw_row(frame, y, label, value, "", 130, i as u8 == field, editing);
                 }
-                // A bar for the volume row, so a step reads as a step.
+                draw_button(frame, 38 + 3 * 20 + 2, "Save", field == 3);
+                // A bar for the volume row, so a step reads as a step. It turns white with the row.
+                let ink = if editing && field == 0 { Color::White } else { Color::Black };
                 let _ = Rectangle::new(Point::new(190, 30), Size::new(50, 8))
-                    .into_styled(PrimitiveStyle::with_stroke(Color::Black, 1))
+                    .into_styled(PrimitiveStyle::with_stroke(ink, 1))
                     .draw(frame);
                 let fill = 48 * level as u32 / MAX_VOLUME as u32;
                 let _ = Rectangle::new(Point::new(191, 31), Size::new(fill, 6))
-                    .into_styled(PrimitiveStyle::with_fill(Color::Black))
+                    .into_styled(PrimitiveStyle::with_fill(ink))
                     .draw(frame);
             }
             Screen::Alarms { cursor } => {
@@ -484,9 +477,9 @@ impl Face {
                     }
                 }
             }
-            Screen::Zone { field, minutes, dst } => {
-                // The title carries the whole offset as it will read once saved, so the two
-                // rows below it can be checked against the number people know the zone by.
+            Screen::Zone { field, editing, minutes, dst } => {
+                // The title carries the whole offset as it will read once saved, so the rows
+                // below it can be checked against the number people know the zone by.
                 let mut title_buf = [0u8; OFFSET_LEN];
                 let offset = format_offset(minutes, &mut title_buf);
                 let _ = Text::new("Time zone  UTC", Point::new(14, 18), small).draw(frame);
@@ -499,18 +492,14 @@ impl Face {
                     ("Hour", core::str::from_utf8(&hour).unwrap_or("")),
                     ("Minute", two(m as u32, &mut minute_buf)),
                     ("Summer time", dst.name()),
-                    ("Save", ""),
                 ];
                 for (i, (label, value)) in rows.into_iter().enumerate() {
-                    let y = 40 + i as i32 * 20;
-                    if i as u8 == field {
-                        let _ = Text::new(">", Point::new(12, y), small).draw(frame);
-                    }
-                    let _ = Text::new(label, Point::new(28, y), small).draw(frame);
-                    let _ = Text::new(value, Point::new(112, y), small).draw(frame);
+                    let y = 40 + i as i32 * 18;
+                    draw_row(frame, y, label, value, "", 112, i as u8 == field, editing);
                 }
+                draw_button(frame, 40 + 3 * 18 + 2, "Save", field == 3);
             }
-            Screen::Edit { slot, field, draft } => {
+            Screen::Edit { slot, field, editing, draft } => {
                 // The list is gone once a row is open, so the screen has to say which alarm it is
                 // editing.
                 let _ = Text::new("Alarm", Point::new(14, 18), small).draw(frame);
@@ -536,30 +525,22 @@ impl Face {
                     ("Days", day_name(draft.days)),
                     ("Sound", format_choice(draft.sound, menu.settings.default_alarm, &mut s_buf)),
                     ("Volume", format_volume(draft.volume, menu.settings.volume, &mut v_buf)),
-                    ("Save", ""),
-                    ("Delete", ""),
                 ];
                 for (i, (label, value)) in rows.into_iter().enumerate() {
-                    let y = 30 + i as i32 * 14;
-                    if i as u8 == field {
-                        let _ = Text::new(">", Point::new(12, y), small).draw(frame);
-                    }
-                    let _ = Text::new(label, Point::new(28, y), small).draw(frame);
-                    let _ = Text::new(value, Point::new(96, y), small).draw(frame);
+                    let y = 32 + i as i32 * 12;
                     // The hour row is the first field, and it needs saying whether it is
                     // morning or afternoon.
-                    if i == Field::Hour as usize {
-                        let _ = Text::new(
-                            meridiem(draft.minute as i64),
-                            Point::new(96 + value.len() as i32 * 6 + 6, y),
-                            small,
-                        )
-                        .draw(frame);
-                    }
+                    let suffix = if i == Field::Hour as usize { meridiem(draft.minute as i64) } else { "" };
+                    draw_row(frame, y, label, value, suffix, 96, i as u8 == field, editing);
                 }
+                // Actions, not values: boxed, and OK does them at once.
+                draw_button(frame, 32 + 5 * 12 + 2, "Save", field == Field::Save as u8);
+                draw_button(frame, 32 + 6 * 12 + 4, "Delete", field == Field::Delete as u8);
             }
         }
 
+        // What the four buttons do right now, along the bottom.
+        let _ = Text::new(menu.hint(), Point::new(8, 121), small).draw(frame);
         self.push();
     }
 
@@ -622,6 +603,62 @@ impl Face {
             defmt::info!("panel: could not be put to sleep");
         }
     }
+}
+
+/// One row of a settings screen. The cursor row carries a `>`. A row that is being edited turns
+/// black, with its value between arrows, so it is plain at a glance that Up and Down now change
+/// the value instead of moving.
+#[allow(clippy::too_many_arguments)]
+fn draw_row<D: DrawTarget<Color = Color>>(
+    frame: &mut D,
+    y: i32,
+    label: &str,
+    value: &str,
+    suffix: &str,
+    value_x: i32,
+    selected: bool,
+    editing: bool,
+) {
+    let active = selected && editing;
+    let ink = if active { Color::White } else { Color::Black };
+    let style = MonoTextStyle::new(&FONT_6X10, ink);
+    if active {
+        let _ = Rectangle::new(Point::new(6, y - 8), Size::new(238, 12))
+            .into_styled(PrimitiveStyle::with_fill(Color::Black))
+            .draw(frame);
+    }
+    if selected {
+        let _ = Text::new(">", Point::new(12, y), style).draw(frame);
+    }
+    let _ = Text::new(label, Point::new(28, y), style).draw(frame);
+    let mut end = value_x + value.len() as i32 * 6;
+    let _ = Text::new(value, Point::new(value_x, y), style).draw(frame);
+    if !suffix.is_empty() {
+        let _ = Text::new(suffix, Point::new(end + 6, y), style).draw(frame);
+        end += 6 + suffix.len() as i32 * 6;
+    }
+    if active {
+        let _ = Text::new("<", Point::new(value_x - 8, y), style).draw(frame);
+        let _ = Text::new(">", Point::new(end + 6, y), style).draw(frame);
+    }
+}
+
+/// An action rather than a value: drawn as a box, filled while the cursor is on it.
+fn draw_button<D: DrawTarget<Color = Color>>(frame: &mut D, y: i32, label: &str, selected: bool) {
+    const W: u32 = 72;
+    let ink = if selected { Color::White } else { Color::Black };
+    let _ = Rectangle::new(Point::new(28, y - 8), Size::new(W, 12))
+        .into_styled(if selected {
+            PrimitiveStyle::with_fill(Color::Black)
+        } else {
+            PrimitiveStyle::with_stroke(Color::Black, 1)
+        })
+        .draw(frame);
+    if selected {
+        let _ = Text::new(">", Point::new(12, y), MonoTextStyle::new(&FONT_6X10, Color::Black)).draw(frame);
+    }
+    let x = 28 + (W as i32 - label.len() as i32 * 6) / 2;
+    let _ = Text::new(label, Point::new(x, y), MonoTextStyle::new(&FONT_6X10, ink)).draw(frame);
 }
 
 /// A value with a leading zero, for a menu row; two bytes is the widest the rows need.

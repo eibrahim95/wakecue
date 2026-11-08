@@ -69,6 +69,12 @@ Each line has a row in `docs/build-log.html`.
 
 ## Written but not yet seen
 
+- **One rule for every settings screen:** Up and Down only move between rows. OK on a value row
+  activates it (the row turns black, the value sits between `<` and `>`), Up and Down then change
+  it, and OK or Back deactivates it where it stands. OK on the Rings row flips it; OK on the boxed
+  Save or Delete does it. Back with nothing active discards the screen. A footer line says what the
+  buttons do right now. Covers the alarm editor, a prayer's screen, Sound and Time zone. 252 host
+  tests pass and it builds; not flashed, so the drawing is unseen on the panel.
 - **Sounds and volumes, chosen and played:** the top menu's **Sound** row sets the general volume,
   the default adhan and the default alarm sound (each 1 to 100); each prayer has a screen with Rings,
   Sound and Volume, and each alarm has Sound and Volume rows, every one with Default. Picking a sound
