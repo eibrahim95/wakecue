@@ -16,6 +16,9 @@ use lamp_core::dfplayer::{
     frame,
 };
 
+/// How long to leave the board alone after each command.
+const CMD_GAP_MS: u32 = 120;
+
 pub struct Player {
     uart: Uart<'static, Blocking>,
     parser: Parser,
@@ -37,6 +40,10 @@ impl Player {
         let f = frame(cmd, param);
         let _ = self.uart.write(&f);
         let _ = self.uart.flush();
+        // The board is slow to take a command in: the bench programs always left half a second, and
+        // a play sent a few milliseconds after a volume is the kind of thing it can drop. Leaving a
+        // gap after every command costs a preview step about a quarter of a second.
+        self.delay.delay_millis(CMD_GAP_MS);
     }
 
     /// Hand every reply that has arrived to `on_reply`. Never waits.
