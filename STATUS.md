@@ -68,6 +68,14 @@ Each line has a row in `docs/build-log.html`.
   10 Nov.
 - **Wi-Fi:** joins the house router as a station (scratch project), DHCP,
   DNS, NTP. The lamp's own network, setup page and clock sync are in the entries above.
+- **The ring in the app, without the rail switch:** each wake asks `schedule::active_ramp` how far
+  into a light ramp it is and sets all 16 pixels to that step (`ramp_pixel`, capped at 64 of 255); an
+  alarm lights the ring at the end-of-ramp warm white while it rings and turns it off after; any other
+  wake sends black. The pixels hold their colour through the sleep, so the ramp is one step a minute.
+  The ring is powered all the time (no rail switch). Reported working on the board on 11 Nov; what
+  was not reported: the detail of the ramp steps, whether a floating GPIO10 flickers the pixels in
+  deep sleep (a 10 kΩ from the ring's data pin to ground would stop it), and the ring at 3.2-3.5 V.
+  Not decided: what the ring does after a prayer's adhan ends (it goes dark now).
 
 ## Written but not yet seen
 
@@ -185,8 +193,8 @@ Numbers or sightings only the board can give.
 3. **The rail switch:** fit the AO3400, switch the player's ground with GPIO5, and measure the idle
    draw with the rail off. Today the player is powered from the 5V pin all the time (about 20 mA
    idle), which will not do on a battery.
-4. **The LED ring** in the app (the bench program `bin/ring.rs` works): the ramp before an alarm,
-   from the same call that starts the sound.
+4. **The LED ring** in the app: done without the rail switch (see "Seen on the board"); what is left
+   is the ring's check at 3.2-3.5 V and deciding what it does after an adhan.
 5. **The CPU clock:** the app uses `CpuClock::max()` (160 MHz). esp-radio needs at least 80 MHz for
    Wi-Fi. Measure how long a normal minute-tick boot is awake, then try 80 MHz and re-check the Wi-Fi
    sync, the setup mode and the panel. Not started.

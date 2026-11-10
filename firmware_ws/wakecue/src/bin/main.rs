@@ -26,6 +26,7 @@ use lamp_core::calendar::{FORMAT_LEN, Zone, format_minutes};
 use lamp_core::dfplayer::fade_volume;
 use lamp_core::ds3231;
 use lamp_core::menu::{Menu, Screen};
+use lamp_core::ramp::ramp_pixel;
 use lamp_core::schedule::{self, Action, Prayer, PrayerTimes, Rule, When};
 use lamp_core::settings::{
     MAX_RULES, READ_LEN, SECTOR_A, SECTOR_B, SECTOR_LEN, STORED_LEN, Sector, Settings, Stored,
@@ -33,6 +34,7 @@ use lamp_core::settings::{
 use wakecue::clock;
 use wakecue::display::{Face, NextUp, PanelBus, Standby};
 use wakecue::player::Player;
+use wakecue::ring::{self, LedRing};
 
 // The phone setup needs a heap and the radio, which the other binaries in this crate do not
 // link, so it belongs to this binary and not to the library.
@@ -110,6 +112,9 @@ fn main() -> ! {
     });
     // The MP3 board's serial link. Nothing is sent until something is to be played.
     let mut player = Player::new(peripherals.UART1, peripherals.GPIO20, peripherals.GPIO21);
+    // The LED ring. It holds the colour it was last given through the sleep, so each wake sets it
+    // to match the minute: a step of the light ramp, or dark.
+    let mut led = LedRing::new(peripherals.RMT, peripherals.GPIO10);
 
     // The display owns GPIO0, 1, 2, 8 and 9 (reset, busy, data/command, data, clock), so
     // this firmware never drives the onboard LED: it shares GPIO8 with the SPI data line.
@@ -253,6 +258,23 @@ fn main() -> ! {
             }
         }
 
+        // The light. A ramp is a start and a finish with nothing at the minutes between, so every
+        // wake works out how far in it is. A wake that is due for a sound leaves the ring to the
+        // alarm below, which lights it fully.
+        if alarm.is_none() {
+            match schedule::active_ramp(now_min, &rules[..count], &prayers, zone) {
+                Some((elapsed_s, total_s)) => {
+                    let px = ramp_pixel(elapsed_s, total_s, ring::CAP);
+                    info!(
+                        "ring: ramp {} of {} s, ({=u8}, {=u8}, {=u8})",
+                        elapsed_s, total_s, px[0], px[1], px[2]
+                    );
+                    led.show(px);
+                }
+                None => led.off(),
+            }
+        }
+
         match schedule::next_event(from, &rules[..count], &prayers, zone) {
             Some(next) => {
                 info!(
@@ -317,7 +339,10 @@ fn main() -> ! {
             Stamp(at),
             ALARM_MS / 1000
         );
+        // The end of the ramp: warm white at the cap, held while the sound plays.
+        led.show(ramp_pixel(1, 1, ring::CAP));
         let answered = run_alarm(&mut face, &mut i2c, &mut pad, &mut player, ring, title, at, zone);
+        led.off();
         info!(
             "alarm: {}",
             if answered {

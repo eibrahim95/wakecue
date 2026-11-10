@@ -173,6 +173,33 @@ pub fn next_event(from_min: i64, rules: &[Rule], prayers: &impl PrayerTimes, zon
     best
 }
 
+/// How far into a light ramp `now_min` is, if one is under way: seconds elapsed and seconds in all.
+///
+/// The ramp is a start-and-finish pair: [`next_event`] reports only the minute it starts, so a lamp
+/// that wakes every minute asks this instead, on every wake, and sets the light to match. A ramp is
+/// under way from its start up to, but not at, the minute its rule is due (that minute belongs to
+/// the sound). With two ramps overlapping, the one that finishes first wins.
+pub fn active_ramp(now_min: i64, rules: &[Rule], prayers: &impl PrayerTimes, zone: Zone) -> Option<(u32, u32)> {
+    let first = now_min.div_euclid(1440) as i32 - 1;
+    let mut best: Option<(i64, (u32, u32))> = None;
+    for day in first..first + 3 {
+        for rule in rules {
+            let Action::Sunrise { ramp_min } = rule.action else { continue };
+            if ramp_min == 0 { continue; }
+            let Some(target) = target_min(rule, day, prayers, zone) else { continue };
+            let start = target - ramp_min as i64;
+            if now_min < start || now_min >= target { continue; }
+            let local = zone.to_local(target);
+            let wd = weekday(local.div_euclid(1440) as i32);
+            if rule.days & (1 << wd) == 0 { continue; }
+            if best.is_none_or(|(t, _)| target < t) {
+                best = Some((target, (((now_min - start) * 60) as u32, ramp_min as u32 * 60)));
+            }
+        }
+    }
+    best.map(|(_, r)| r)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -418,5 +445,47 @@ mod tests {
         let eve = days_from_civil(2025, 12, 31) as i64 * 1440 + 23 * 60 + 30;
         assert_eq!(local_times(eve, &t, tokyo)[0], Some(217 + 540));
         assert_eq!(local_times(eve, &t, london)[0], None);
+    }
+    #[test]
+    fn a_ramp_is_active_from_its_start_to_the_minute_before_its_rule() {
+        // Fajr 03:10 UTC with a 15-minute ramp: it starts 02:55 and the sound takes over at 03:10.
+        let d = days_from_civil(2026, 10, 25);
+        let mut b = [0u8; 50];
+        let t = table(&mut b, d, [190; 5]);
+        let base = d as i64 * 1440;
+        let z = Zone::CAIRO;
+
+        assert_eq!(active_ramp(base + 174, &RULES, &t, z), None);
+        assert_eq!(active_ramp(base + 175, &RULES, &t, z), Some((0, 900)));
+        assert_eq!(active_ramp(base + 182, &RULES, &t, z), Some((420, 900)));
+        assert_eq!(active_ramp(base + 189, &RULES, &t, z), Some((840, 900)));
+        assert_eq!(active_ramp(base + 190, &RULES, &t, z), None);
+    }
+
+    #[test]
+    fn a_ramp_that_crosses_midnight_is_found_from_either_side() {
+        // Fajr at 00:05 UTC on the next day, so the ramp starts at 23:50 the day before.
+        let d = days_from_civil(2026, 10, 25);
+        let mut b = [0u8; 50];
+        let t = table(&mut b, d, [5; 5]);
+        let base = d as i64 * 1440;
+        let z = Zone::CAIRO;
+        // Day d's own Fajr is 00:05; its ramp ran 23:50 of the day before.
+        assert_eq!(active_ramp(base - 10, &RULES, &t, z), Some((0, 900)));
+        assert_eq!(active_ramp(base - 1, &RULES, &t, z), Some((540, 900)));
+        assert_eq!(active_ramp(base + 2, &RULES, &t, z), Some((720, 900)));
+        assert_eq!(active_ramp(base + 5, &RULES, &t, z), None);
+    }
+
+    #[test]
+    fn only_a_sunrise_rule_makes_a_ramp() {
+        let d = days_from_civil(2026, 10, 25);
+        let mut b = [0u8; 50];
+        let t = table(&mut b, d, [190; 5]);
+        let sounds_only = [RULES[1], RULES[2]];
+        assert_eq!(active_ramp(d as i64 * 1440 + 180, &sounds_only, &t, Zone::CAIRO), None);
+        // A zero-minute ramp is no ramp.
+        let zero = [Rule { days: ALL_DAYS, when: When::Prayer(Prayer::Fajr, 0), action: Action::Sunrise { ramp_min: 0 } }];
+        assert_eq!(active_ramp(d as i64 * 1440 + 190, &zero, &t, Zone::CAIRO), None);
     }
 }

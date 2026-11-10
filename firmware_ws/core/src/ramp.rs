@@ -33,6 +33,19 @@ pub fn ramp_colour(elapsed_s: u32, total_s: u32) -> [u8; 3] {
     STOPS[3].1
 }
 
+/// The pixel colour at a point in the ramp: the ramp's colour dimmed by its brightness, then by
+/// `cap` (255 = no cap). The cap is the owner's limit on current: sixteen pixels at full white
+/// draw most of an amp.
+pub fn ramp_pixel(elapsed_s: u32, total_s: u32, cap: u8) -> [u8; 3] {
+    let c = ramp_colour(elapsed_s, total_s);
+    let k = ramp_duty(elapsed_s, total_s) as u16 * cap as u16 / 255;
+    [
+        (c[0] as u16 * k / 255) as u8,
+        (c[1] as u16 * k / 255) as u8,
+        (c[2] as u16 * k / 255) as u8,
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -56,5 +69,18 @@ mod tests {
         assert_eq!(ramp_colour(900, 900), [255, 147, 41]);
         assert_eq!(ramp_colour(0, 900), [42, 7, 0]);
         assert_eq!(ramp_colour(2000, 900), [255, 147, 41]);
+    }
+    #[test]
+    fn pixel_is_dark_at_the_start_and_capped_at_the_end() {
+        assert_eq!(ramp_pixel(0, 900, 255), [0, 0, 0]);
+        assert_eq!(ramp_pixel(900, 900, 255), [255, 147, 41]);
+        // A cap of 64 keeps the end of the ramp to a quarter of full.
+        let end = ramp_pixel(900, 900, 64);
+        assert!(end[0] <= 64 && end[0] > 60);
+        // No channel can exceed the cap.
+        for s in 0..=900 {
+            let p = ramp_pixel(s, 900, 64);
+            assert!(p.iter().all(|&v| v <= 64));
+        }
     }
 }
