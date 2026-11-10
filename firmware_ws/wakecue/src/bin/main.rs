@@ -172,7 +172,7 @@ fn main() -> ! {
 
     // What the face's next-up line names, decided below; `None` means the clock cannot be trusted,
     // so the face says that instead of naming anything.
-    let mut face_next: Option<NextUp> = None;
+    let mut face_next = FaceNext::NONE;
     // Today's five prayers as local minutes, for the strip along the bottom of the face.
     let mut today: [Option<i64>; 5] = [None; 5];
     // The event this boot has to answer for, if one came due: the prayer's sound or a user alarm.
@@ -232,7 +232,7 @@ fn main() -> ! {
         let count = settings.rules(&mut rules);
         // The face names the next prayer of the five, whatever the switches say: it is a clock,
         // and the schedule below only answers "what will the lamp act on".
-        face_next = next_up(now_min, &settings, &prayers);
+        face_next = FaceNext::at(now_min, &settings, &prayers);
         today = schedule::local_times(now_min, &prayers, zone);
 
         // Anything whose time has arrived is this boot's job. The alarm fired, so the event
@@ -282,7 +282,9 @@ fn main() -> ! {
     if alarm.is_none() {
         face.show_clock(Standby {
             now_min,
-            next: face_next,
+            next_adhan: face_next.adhan,
+            next_enabled_adhan: face_next.enabled_adhan,
+            next_alarm: face_next.alarm,
             today,
             prayers_on: settings.prayers_on,
             sleeping: !by_hand,
@@ -563,23 +565,31 @@ impl Format for Stamp {
     }
 }
 
-/// What the face's next-up line should name at `now_min`: the sooner of the next prayer and the
-/// next alarm that will ring.
-///
-/// Prayers count whether or not their switch is on — the glass is a prayer clock, and the strip
-/// below already lists all five — while an alarm only counts if it is set and enabled, because an
-/// alarm that will not ring is not something the lamp is about to do.
-fn next_up(now_min: i64, settings: &Settings, prayers: &impl PrayerTimes) -> Option<NextUp> {
-    match (
-        schedule::next_prayer(now_min, prayers),
-        settings.next_alarm(now_min),
-    ) {
-        (Some((prayer_at, _)), Some((alarm_at, _))) if alarm_at < prayer_at => {
-            Some(NextUp::Alarm(alarm_at))
-        }
-        (Some((prayer_at, prayer)), _) => Some(NextUp::Prayer(prayer_at, prayer)),
-        (None, Some((alarm_at, _))) => Some(NextUp::Alarm(alarm_at)),
-        (None, None) => None,
+/// The three answers the face is drawn from.
+struct FaceNext {
+    /// The next prayer, whether or not it rings: the strip highlights it.
+    adhan: Option<(i64, Prayer)>,
+    /// The next prayer that is switched on.
+    enabled_adhan: Option<(i64, Prayer)>,
+    /// The next thing that will ring, an enabled prayer or an alarm: the "Next:" line names it.
+    alarm: Option<NextUp>,
+}
+
+impl FaceNext {
+    const NONE: Self = Self { adhan: None, enabled_adhan: None, alarm: None };
+
+    fn at(now_min: i64, settings: &Settings, prayers: &impl PrayerTimes) -> Self {
+        let adhan = schedule::next_prayer(now_min, prayers);
+        let enabled_adhan = schedule::next_prayer_in(now_min, prayers, settings.prayers_on);
+        let alarm = match (enabled_adhan, settings.next_alarm(now_min)) {
+            (Some((prayer_at, _)), Some((alarm_at, _))) if alarm_at < prayer_at => {
+                Some(NextUp::Alarm(alarm_at))
+            }
+            (Some((prayer_at, prayer)), _) => Some(NextUp::Prayer(prayer_at, prayer)),
+            (None, Some((alarm_at, _))) => Some(NextUp::Alarm(alarm_at)),
+            (None, None) => None,
+        };
+        Self { adhan, enabled_adhan, alarm }
     }
 }
 
@@ -749,15 +759,17 @@ fn draw_clock(
     osf: bool,
     sleeping: bool,
 ) {
-    let mut face_next: Option<NextUp> = None;
+    let mut face_next = FaceNext::NONE;
     let zone = settings.zone();
     let today = schedule::local_times(now, prayers, zone);
     if !osf {
-        face_next = next_up(now, settings, prayers);
+        face_next = FaceNext::at(now, settings, prayers);
     }
     face.show_clock(Standby {
         now_min: now,
-        next: face_next,
+        next_adhan: face_next.adhan,
+        next_enabled_adhan: face_next.enabled_adhan,
+        next_alarm: face_next.alarm,
         today,
         prayers_on: settings.prayers_on,
         sleeping,

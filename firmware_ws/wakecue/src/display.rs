@@ -30,8 +30,8 @@ use weact_studio_epd::{Color, WeActStudio213BlackWhiteDriver};
 /// is the line to change to `Rotate270`.
 const ROTATION: DisplayRotation = DisplayRotation::Rotate90;
 
-/// What the face's "Next:" line names: whichever comes first, a prayer from the table or one of
-/// the lamp's own alarms.
+/// What the face's "Next:" line names: whichever rings first, an enabled prayer or one of the
+/// lamp's own alarms.
 #[derive(Clone, Copy)]
 pub enum NextUp {
     Prayer(i64, Prayer),
@@ -44,9 +44,14 @@ pub enum NextUp {
 pub struct Standby {
     /// The clock's minute count, UTC.
     pub now_min: i64,
-    /// The next prayer or alarm and its time in UTC minutes, or `None` when the clock cannot be
-    /// trusted.
-    pub next: Option<NextUp>,
+    /// The next prayer whether or not it rings, with its time in UTC minutes. It is the one the
+    /// strip highlights, and has a value whenever the clock and the table do.
+    pub next_adhan: Option<(i64, Prayer)>,
+    /// The next prayer that is switched on, or `None` when none is.
+    pub next_enabled_adhan: Option<(i64, Prayer)>,
+    /// The next thing that will ring, an enabled prayer or an alarm, which the "Next:" line names.
+    /// `None` when nothing is set to ring.
+    pub next_alarm: Option<NextUp>,
     /// Today's five prayers as local minutes after midnight, `None` where the table ends.
     pub today: [Option<i64>; 5],
     /// Which prayers ring, a bit per prayer in [`Prayer::ALL`] order.
@@ -203,7 +208,7 @@ impl Face {
             draw_moon(frame, 226, 8);
         }
 
-        match s.next {
+        match s.next_alarm {
             Some(upcoming) => {
                 let at = match upcoming {
                     NextUp::Prayer(at, _) => at,
@@ -240,6 +245,11 @@ impl Face {
                 let _ = Text::new(cd, Point::new(236 - cd.len() as i32 * 6, 77), small).draw(frame);
                 defmt::info!("panel: face drawn, {} next {} {} {}", time, name, at_text, cd);
             }
+            // A trusted clock always has a next prayer, so having none means the time is not set.
+            None if s.next_adhan.is_some() => {
+                let _ = Text::new("Next: nothing set to ring", Point::new(14, 77), small).draw(frame);
+                defmt::info!("panel: face drawn, {} with nothing to ring", time);
+            }
             None => {
                 let _ = Text::new("time not set", Point::new(14, 77), small).draw(frame);
                 defmt::info!("panel: face drawn, {} with no trusted time", time);
@@ -252,12 +262,9 @@ impl Face {
             let _ = Line::new(Point::new(10, 88), Point::new(240, 88))
                 .into_styled(rule)
                 .draw(frame);
-            // The prayer the "Next:" line names, if it names one rather than an alarm: its column is
-            // drawn white on black.
-            let next_prayer = match s.next {
-                Some(NextUp::Prayer(_, p)) => Some(p.index()),
-                _ => None,
-            };
+            // The next prayer, ringing or not, has its column drawn white on black, whatever the
+            // "Next:" line names.
+            let next_prayer = s.next_adhan.map(|(_, p)| p.index());
             // The name and its bell are centred on the column as one piece, with the time centred
             // under that piece. The names differ in width ("Asr" against "Maghrib"), so first work
             // out where each column's ink starts and ends: the dividers go in the gaps between them.

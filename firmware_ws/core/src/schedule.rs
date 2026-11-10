@@ -97,6 +97,16 @@ fn target_min(rule: &Rule, day: i32, prayers: &impl PrayerTimes, zone: Zone) -> 
 /// next", which is what the face shows. A prayer is reported at its own time, not at the minute
 /// its ramp starts.
 pub fn next_prayer(from_min: i64, prayers: &impl PrayerTimes) -> Option<(i64, Prayer)> {
+    next_prayer_in(from_min, prayers, 0b1_1111)
+}
+
+/// Like [`next_prayer`], but only among the prayers whose bit is set in `mask` (a bit per prayer in
+/// [`Prayer::ALL`] order, as `Settings::prayers_on`). `None` when the mask is empty.
+pub fn next_prayer_in(
+    from_min: i64,
+    prayers: &impl PrayerTimes,
+    mask: u8,
+) -> Option<(i64, Prayer)> {
     let first = from_min.div_euclid(1440) as i32;
     // Five prayers a day are well inside two days of lookahead, and a place with no times gets the
     // same answer either way: none.
@@ -104,6 +114,9 @@ pub fn next_prayer(from_min: i64, prayers: &impl PrayerTimes) -> Option<(i64, Pr
         let base = day as i64 * 1440;
         let mut best: Option<(i64, Prayer)> = None;
         for p in Prayer::ALL {
+            if mask & (1 << p.index()) == 0 {
+                continue;
+            }
             let Some(m) = prayers.utc_min(p, day) else { continue };
             let at = base + m;
             if at < from_min {
