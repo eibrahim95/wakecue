@@ -64,6 +64,8 @@ Each line has a row in `docs/build-log.html`.
   test beep reads 22); `/mp3/0101.mp3` plays by name across a gap, so adhan are 0001-0099 and alarm
   sounds start at 0101. The datasheet's table has 0x47 and 0x48 the wrong way round for this board.
   Test programs `just sound` and `just numbering`. Powered from 5V here, not through the rail switch.
+  Also played from the LM2596 module (screw-terminal buck converter, no USB) at 4.2, 3.5 and 3.2 V on
+  10 Nov.
 - **Wi-Fi:** joins the house router as a station (scratch project), DHCP,
   DNS, NTP. The lamp's own network, setup page and clock sync are in the entries above.
 
@@ -120,7 +122,8 @@ Everything in the parts list (`docs/hardware.html#bom`) except the Amazon.eg
 and Hawk groups: all of the Makers order (parts, tools, LM2596 test supply),
 the ESP32-C3 SuperMini from Most, and the WeAct 2.13″ e-paper. Also already
 owned, not bought: a USB SD reader, a 16 GB microSD (FAT32, `mp3` folder), a
-soldering iron, Stannol solder, a screwdriver.
+soldering iron, solder in 0.4, 0.6, 0.8 and 1 mm (plus the old Stannol HS10
+1.8 mm), a screwdriver.
 
 **Wired on the breadboard:** SuperMini, DS3231 (no coin cell), TTP223,
 PCF8574 + four buttons, e-paper, the MP3 board and its speaker (5V and GND, GPIO20/21 through 1 kΩ).
@@ -144,9 +147,10 @@ power LED are still on; the DS3231 charge resistor (most likely `R4`, decided
 
 Numbers or sightings only the board can give.
 
-- **Low cell voltage:** the ring is rated from 3.5 V and the MP3 board wants
-  4.5–5 V, but the cell runs 3.2–4.2 V. Tested in move 2; the fallback is
-  the MT3608 boost.
+- **Low cell voltage:** the MP3 board and speaker play at 4.2, 3.5 and 3.2 V from the LM2596 (10 Nov,
+  by ear), so the player needs no boost. Still open: the LED ring, rated from 3.5 V, which is not
+  wired yet; the file count and resets were not checked at low voltage. The fallback is the MT3608
+  boost.
 - **Switched ground:** never built. Does anything leak through the ring or
   player pins while their ground is off? (move 2)
 - **Sleep current:** an estimate. The battery calculator assumes 1 mA. (move 3)
@@ -176,9 +180,8 @@ Numbers or sightings only the board can give.
    and Volume rows, and a due prayer or alarm ringing by itself (set an alarm a minute ahead with
    the card in). Then step through the alarm sounds 1 to 88 and say which ringtones are wrong, quiet
    or unwanted; swap them with `tools/ringtone_order.txt` and `tools/audio_card.py`.
-2. **Low cell voltage:** run the player and speaker from the LM2596 at 4.2, 3.5 and 3.2 V and see
-   whether a track plays at a usable volume and without resets (the open question under "Open
-   questions").
+2. **Low cell voltage:** the player and speaker are done (they played at 4.2, 3.5 and 3.2 V from
+   the LM2596). The ring's check at 3.2-3.5 V comes with step 4, once the ring is wired.
 3. **The rail switch:** fit the AO3400, switch the player's ground with GPIO5, and measure the idle
    draw with the rail off. Today the player is powered from the 5V pin all the time (about 20 mA
    idle), which will not do on a battery.
@@ -193,6 +196,14 @@ Numbers or sightings only the board can give.
    pin rows in `docs/hardware.html` (see below). Nothing has been printed.
 7. **Buy:** the globe first (the print is sized from its neck), lead shot, then the repeat quote from
    Hawk (see "Still to buy").
+
+## Ideas for later
+
+- **Say what a track is in its file name.** Add a suffix to the MP3 files: `_alarm`, `_alarm_placeholder`,
+  `_adhan`, `_adhan_placeholder`, so the card tells you which sounds are real and which are stand-ins
+  without opening the index. (Today the split is by number: adhan 0001-0099, alarms from 0101; the
+  player plays by number, so the suffix would be for people and for `tools/audio_card.py`, which
+  would need to read it.)
 
 ## Working notes for whoever picks this up
 
