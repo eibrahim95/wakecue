@@ -4,14 +4,15 @@ The one place that says where the build stands and what is in hand.
 `docs/` is reference and does not repeat any of this. Update this file in the
 same commit as the build-log row that changes it.
 
-Last updated: 9 Nov 2026
+Last updated: 12 Nov 2026
 
 ## Current move
 
 **Roadmap move 2 · It wakes you** is in progress; move 1 is built and seen (the last gate checks are
 in "Written but not yet seen"). The sound half of move 2 is done on the bench and in the app: the
 MP3 board plays by file number, the menu chooses and previews sounds, and a due prayer or alarm
-plays its own. Not started: the LED ring in the app, the rail switch, and the low-voltage test.
+plays its own. The LED ring is in the app, and the rail switch (AO3400 on GPIO5) is fitted and
+reported working (12 Nov). Not yet done: the rail-off current, and the ring at 3.2-3.5 V.
 The plan and its gates are in `docs/index.html#roadmap`. Move 3 (it ships) follows.
 
 ## Seen on the board
@@ -76,9 +77,25 @@ Each line has a row in `docs/build-log.html`.
   was not reported: the detail of the ramp steps, whether a floating GPIO10 flickers the pixels in
   deep sleep (a 10 kΩ from the ring's data pin to ground would stop it), and the ring at 3.2-3.5 V.
   Not decided: what the ring does after a prayer's adhan ends (it goes dark now).
+  Since 12 Nov the ring sits behind the rail switch (next entry).
+- **The rail switch:** the AO3400 is wired and driven by GPIO5 (1 kΩ to the gate, 100 kΩ from the gate to
+  ground; source to the lamp's ground, drain to the joined grounds of the ring and the MP3 board). The
+  ring and the MP3 board are powered from the LM2596 at 3.2 V, itself fed by a 5 V 1 A charger; the
+  ESP32 is on USB. Reported on 12 Nov: it works. Reported with it: a small click from the speaker on
+  every one-minute wake, because that firmware switched the rail on at the start of every wake and the
+  MP3 board pops when its ground is joined. Not reported: the current with the rail off, the ring's
+  colours at 3.2 V, and whether the held rail keeps the glow through the sleep (see below).
 
 ## Written but not yet seen
 
+- **The rail only when needed (12 Nov):** `wakecue/src/rail.rs`. A plain minute tick no longer touches
+  GPIO5, so the ring and the MP3 board stay unpowered and the click should go. A light-ramp wake
+  switches the rail on, sets the ring, and holds GPIO5 high through the sleep (`set_pad_hold`) so the
+  ring keeps its glow and the player is not power-cycled each minute; any other sleep drops the rail.
+  An alarm, an adhan or a menu preview switches it on and waits 1.5 s for the MP3 board to start before
+  the first command (an estimate, not measured). Builds in both DEV_MODE settings; not flashed. To see:
+  no click on a plain minute tick, one pop at most when a ramp starts or a sound ends, the ring keeps
+  its glow between ramp wakes (the hold through deep sleep is unproven), and the rail-off current.
 - **The face, rearranged:** the date sits under the time, a crescent moon in the top-right corner
   replaces "z z z" as the sleep mark (the corner is kept for the battery later), "Next:" moved down
   5 px, and thin vertical lines separate the five prayers. Builds; not flashed, so the spacing is
@@ -99,8 +116,8 @@ Each line has a row in `docs/build-log.html`.
   prayer plays its adhan once and an alarm repeats its sound, both climbing from volume 1 over the fade.
   Heard on the board (8 Nov): stepping the default adhan plays each sound, once the gap between
   commands was added. Not yet reported: the prayer screens, the alarm editor's rows, and a due prayer
-  or alarm ringing by itself. The player stays powered from 5V all the time, so nothing yet measures
-  the idle draw or the rail switch.
+  or alarm ringing by itself. The step was heard with the player on the 5V pin; the rail switch has
+  since been fitted (above) and nothing yet measures the rail-off draw.
 - **The sound library on the card:** `tools/audio_card.py` builds it, in the order of
   `tools/ringtone_order.txt`. Adhan 0001-0021 are the IslamCan files; alarm sounds start at 0101 with
   Egypt and the Arab world first (a traditional mizmar from Cairo, an Egyptian wedding, an orange
@@ -134,9 +151,15 @@ soldering iron, solder in 0.4, 0.6, 0.8 and 1 mm (plus the old Stannol HS10
 1.8 mm), a screwdriver.
 
 **Wired on the breadboard:** SuperMini, DS3231 (no coin cell), TTP223,
-PCF8574 + four buttons, e-paper, the MP3 board and its speaker (5V and GND, GPIO20/21 through 1 kΩ).
+PCF8574 + four buttons, e-paper, the MP3 board and its speaker (GPIO20/21 through 1 kΩ), the LED ring
+(GPIO10 through 330 Ω), and the AO3400 rail switch (GPIO5). The ring and the MP3 board run from the
+LM2596 at 3.2 V (5 V 1 A charger in) and take their ground through the AO3400.
 
-**In hand but not fitted:** LED ring, AO3400 rail switch, INA219, NCR18650B + holder + TP4056, CR2032, slide switch,
+**The globe (11 Nov):** white opal, 20 cm wide and tall, 165 g; neck Ø97 mm outside, Ø81 mm inside, 15 mm
+straight. It came with a black ceiling fitting (a ring with an E27 socket) that it twists onto through
+three notches in its neck rim; neither is used, the printed seat holds the neck by friction.
+
+**In hand but not fitted:** INA219, NCR18650B + holder + TP4056, CR2032, slide switch,
 perfboard, the fallback parts (MT3608, AO3401, 1N5819WF).
 
 **Not done to the boards yet:** the SuperMini's power LED and the DS3231's
@@ -145,8 +168,6 @@ power LED are still on; the DS3231 charge resistor (most likely `R4`, decided
 
 ## Still to buy
 
-- The globe: Y-LIGHTS opal globe (Amazon.eg), or a plain white opal ceiling
-  globe with a 70–90 mm opening. Buy it first; the print is sized from its neck.
 - Lead shot for ballast (Amazon.eg).
 - The print from Hawk: body, lid, TPU grip ring and four feet, four button
   caps. Repeat the quote; the body has changed since 25 Oct.
@@ -156,11 +177,12 @@ power LED are still on; the DS3231 charge resistor (most likely `R4`, decided
 Numbers or sightings only the board can give.
 
 - **Low cell voltage:** the MP3 board and speaker play at 4.2, 3.5 and 3.2 V from the LM2596 (10 Nov,
-  by ear), so the player needs no boost. Still open: the LED ring, rated from 3.5 V, which is not
-  wired yet; the file count and resets were not checked at low voltage. The fallback is the MT3608
+  by ear), so the player needs no boost. Still open: the LED ring, rated from 3.5 V, now on the 3.2 V
+  supply but its colours at that voltage not reported; the file count and resets were not checked at low voltage. The fallback is the MT3608
   boost.
-- **Switched ground:** never built. Does anything leak through the ring or
-  player pins while their ground is off? (move 2)
+- **Switched ground:** built 12 Nov and working. Does anything leak through the ring or
+  player pins while their ground is off? Not measured: put the meter in series on the 3.2 V line with
+  the gate low; it should read about 0. (move 2)
 - **Sleep current:** an estimate. The battery calculator assumes 1 mA. (move 3)
 - **Panel's hidden edge:** which six rows or columns the e-paper hides is
   unmeasured; every mark is kept six pixels in until then. (move 3)
@@ -170,7 +192,11 @@ Numbers or sightings only the board can give.
   its card socket with calipers first: the model assumes 21 × 21 mm, a socket about 5 mm above the lid,
   and a socket the card can be reached on and removed from through that window. The tipping figures
   on the hardware page are for four cups and have not been redone.
-- **The base:** never test-printed; the globe seat assumes an 8 cm neck. The
+- **The base:** never test-printed. The seat is now sized for the real globe (`python base.py round`, neck
+  97 mm, generated and watertight), held by the TPU grip ring alone: whether that grips a 165 g globe
+  firmly enough is unknown until the ring is printed. The tipping estimate for a 165 g, 20 cm globe is
+  about 52° and 170 g of push with the lead (48° and 140 g without); it is a rough statics estimate, not a
+  measurement. The
   button stem height (drawn as a 3.5 mm body with about 2 mm of stem) needs
   checking on the real switch before printing.
 - **Prayer times:** the lamp rounds to the nearest minute, as the Egyptian General
@@ -190,20 +216,20 @@ Numbers or sightings only the board can give.
    or unwanted; swap them with `tools/ringtone_order.txt` and `tools/audio_card.py`.
 2. **Low cell voltage:** the player and speaker are done (they played at 4.2, 3.5 and 3.2 V from
    the LM2596). The ring's check at 3.2-3.5 V comes with step 4, once the ring is wired.
-3. **The rail switch:** fit the AO3400, switch the player's ground with GPIO5, and measure the idle
-   draw with the rail off. Today the player is powered from the 5V pin all the time (about 20 mA
-   idle), which will not do on a battery.
-4. **The LED ring** in the app: done without the rail switch (see "Seen on the board"); what is left
+3. **The rail switch:** fitted and working (12 Nov). Flash the rail-on-demand firmware and listen for
+   the click on a plain minute tick, then measure the draw with the rail off and check the ring keeps
+   its glow through a ramp's sleeps.
+4. **The LED ring** in the app: done, now behind the rail switch (see "Seen on the board"); what is left
    is the ring's check at 3.2-3.5 V and deciding what it does after an adhan.
 5. **The CPU clock:** the app uses `CpuClock::max()` (160 MHz). esp-radio needs at least 80 MHz for
    Wi-Fi. Measure how long a normal minute-tick boot is awake, then try 80 MHz and re-check the Wi-Fi
    sync, the setup mode and the panel. Not started.
 6. **The base:** measure the real MP3 board and its card socket (width, length, socket height above
    the board), set `PLAYER_W`, `PLAYER_L`, `PLAYER_POST_H`, `PLAYER_SOCKET_H` in `cad/base.py`,
-   rerun `python base.py round`, recompute the tipping figures for three cups, and fix the SuperMini
-   pin rows in `docs/hardware.html` (see below). Nothing has been printed.
-7. **Buy:** the globe first (the print is sized from its neck), lead shot, then the repeat quote from
-   Hawk (see "Still to buy").
+   rerun `python base.py round`, redo the tipping estimate once the real printed weights are known, and
+   fix the SuperMini pin rows in `docs/hardware.html` (see below). Nothing has been printed. Print the TPU
+   grip ring first and see whether it holds the globe.
+7. **Buy:** lead shot, then the repeat quote from Hawk (see "Still to buy").
 
 ## Ideas for later
 
