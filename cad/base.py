@@ -26,6 +26,11 @@ block lies on its side then, which prints cleanly as a plain bridge-free block.
 Print the lid flat, the grip ring and feet in TPU, and four button caps.
 
 Run:  python base.py round|rect [NECK_D]
+
+NECK_D is the globe's outside neck diameter in mm. The default, 97, is the globe in hand: neck 97 mm
+outside, 81 mm inside, 15 mm straight, 165 g, 20 cm wide and tall. The globe has three notches in the
+rim of its neck (a bayonet fitting that came with a black E27 holder); the printed seat ignores them
+and holds the neck by the TPU grip ring.
 """
 import math
 import sys
@@ -38,7 +43,7 @@ from manifold3d import CrossSection, JoinType, Manifold, set_circular_segments
 set_circular_segments(256)
 
 SHAPE = sys.argv[1] if len(sys.argv) > 1 else "round"
-NECK_D = float(sys.argv[2]) if len(sys.argv) > 2 else 80.0  # measure your globe
+NECK_D = float(sys.argv[2]) if len(sys.argv) > 2 else 97.0  # the globe in hand, measured 11 Nov
 
 # --- shared parameters ------------------------------------------------------
 H = 50.0

@@ -52,7 +52,7 @@
 <tr class="sub"><td colspan="4">Order 1 · Most Electronics</td></tr>
 <tr><td>Board</td><td><a href="https://mostelectronic.com/shop/arduino-development-boards/esp32-c3-super-mini-development-module/" target="_blank" rel="noopener">ESP32-C3 Super Mini Development Module (headers soldered)</a><span class="opt-note">Headers soldered</span></td><td class="num">1</td><td class="num">275</td></tr>
 <tr class="sub"><td colspan="4">Amazon.eg</td></tr>
-<tr><td>Globe</td><td><a href="https://www.amazon.eg/-/en/Y-LIGHTS-Modern-Sphere-Decorative-Lighting/dp/B0GNTGWBHT" target="_blank" rel="noopener">Y-LIGHTS Opal Glass Ball Table Lamp, Black Base</a><span class="opt-note">Ships in 4–5 days · 16 × 16 × 20 cm. You keep only the globe. <b>Cheaper route, searched 5 Nov:</b> a plain white opal ceiling globe (كراوية) is the same component without the marketing — 60–200 EGP from any electrical shop, or about 290 EGP delivered from Jumia (20 cm plastic, free returns). The one number that decides whether it fits is the <b>opening at the bottom, at least 70 mm</b>: the base's light hole is 66 mm with the 68 mm LED ring behind it, and no online listing states it. Test a 70 mm paper cut-out in the shop, and measure again before printing <code>base.py</code>.</span></td><td class="num">1</td><td class="num">660.10</td></tr>
+<tr><td>Globe</td><td>White opal globe, owned<span class="opt-note">20 cm wide and 20 cm tall, 165 g. The neck is <b>Ø97 mm outside, Ø81 mm inside and 15 mm straight</b>. It came with a black ceiling fitting (a ring with an E27 bulb socket); the globe twists onto three lugs in that ring through three notches in the rim of its neck. Neither the fitting nor the notches are used: the printed seat holds the neck by friction, through the TPU grip ring. The price shown is the Y-LIGHTS estimate this row replaced; what was paid for this globe is not recorded here.</span></td><td class="num">1</td><td class="num">660.10</td></tr>
 <tr><td>Ballast</td><td><a href="https://www.amazon.eg/dp/B0B7MNCTCX" target="_blank" rel="noopener">Shaddock Fishing Split Shot Sinkers Assortment, 120 g</a><span class="opt-note">Ships in 2–3 days · loose lead shot you pour into the 4 cups. The cups take about 100 g of it, which puts the tip angle near 44° (interpolated between the 42° and 46° figures above, not tested).</span></td><td class="num">1</td><td class="num">250.00</td></tr>
 <tr><td>microSD card</td><td>Owned: 16 GB microSD, formatted FAT32 with an <code>mp3</code> folder (checked 25 Oct 2026)<span class="opt-note">Not bought · the Amazon.eg Hikvision card would have been 309 EGP. Whether the player accepts a 16 GB card is checked in roadmap move 2.</span></td><td class="num">1</td><td class="num">0</td></tr>
 <tr class="sub"><td colspan="4">Order 1 · Makers Electronics tools and test gear (the same order as the Makers parts)</td></tr>
@@ -103,7 +103,7 @@
   <div class="cols">
     <div class="callout"><strong>Built into the print</strong>
     <ul>
-      <li>0.8 cm deep globe seat lined with a TPU grip ring, so the globe sits snug and can still lift out</li>
+      <li>0.8 cm deep globe seat for the Ø9.7 cm neck, lined with a TPU grip ring, so the globe sits snug and can still lift out</li>
       <li>A printed lip that locates the LED ring under the light hole</li>
       <li>E-paper rails and top stops behind a 0.2 cm window wall; right of the button row, two tiny lamps (one lit, one dark) are engraved 0.4 mm into the face, where the touch pad's copper foil sits</li>
       <li>Four menu buttons: a bar inside the flat front, under the e-paper window, with a pocket for each switch and a hole for each cap. A small printed cap (Ø0.58 cm, 4 needed) in each hole presses its switch; the two front ballast cups were pulled back to sit behind the bar</li>
@@ -114,13 +114,13 @@
     <div class="callout"><strong>Keeping it upright</strong>
     <ul>
       <li>Fill the 3 cups (Ø2.5 × 1.07 cm) with loose lead shot. They hold 15.7 cm³ in all, the same as the four 0.8 cm cups did before the MP3 board took the back-right cup's place, which is about 100 g of shot (178 g only if they were solid lead), or about 75 g if you use twelve M12 washers, four per cup. The tipping figures below were worked out for four cups; with one gone the weight sits about 1 cm off centre, which should move them by a degree or less, but it has not been recomputed.</li>
-      <li>With a 0.6 kg globe and 175 g of lead, the lamp tips at about 46° and takes about 390 g of sideways push at the top of the globe. Without ballast it's about 42° and 330 g. That's typical for a table lamp.</li>
+      <li>The globe weighs 165 g, so the whole lamp is about 0.6 kg with the lead. A simple statics estimate (Hawk's quoted weights for the body and lid, rough guesses for the electronics, a globe 20 cm wide and tall, tipping about the feet 7 cm from the middle) puts the tip angle at about 52° with 100 g of shot and 48° without it, and the sideways push at the top of the globe that tips it at about 170 g with the shot and 140 g without. It is an estimate, not a measurement: it is a light lamp, so keep it off the edge of a shelf and leave the lead in.</li>
       <li>The TPU feet sit near the edge and stop it sliding.</li>
       <li>No glue on the globe. If you want it permanent, use 3 dots of clear neutral-cure silicone, never epoxy or superglue.</li>
     </ul></div>
   </div>
-  <div class="callout warn"><strong>Measure the globe before ordering</strong>
-    <span>The seat and grip ring assume an 8 cm neck, which is a guess. When the globe arrives, measure the neck's outside diameter and length, check whether it has a lip, and weigh it. The Amazon listing's 4.5 kg is almost certainly the shipping weight. Then regenerate the files with <code>python base.py round &lt;neck mm&gt;</code> (the script takes millimetres, so an 8 cm neck is <code>80</code>). If the neck has a lip, the collar can take 3 nylon M4 thumbscrews instead of the grip ring.</span></div>
+  <div class="callout"><strong>The globe, measured</strong>
+    <span>The seat and grip ring are sized for the globe in hand: neck Ø97 mm outside (Ø81 mm inside), 15 mm of it straight, 165 g, 20 cm wide and tall. The script takes the neck in millimetres: <code>python base.py round 97</code>, which is also its default. The three bayonet notches in the rim are ignored, so the globe is held by the grip ring and nothing locks it: print the TPU ring first and check it holds. If it is loose, make the ring thinner or add three small lugs to the seat; if the neck has a lip, the collar can take 3 nylon M4 thumbscrews instead.</span></div>
 
   <p class="muted">No printer nearby? A wood turner can make the same shape from beech with 0.6 cm walls, though you’d fit the rails and frames by hand.</p>
 
@@ -130,12 +130,12 @@
 <svg viewBox="0 0 810 340" role="img" aria-label="Section through the middle of the printed base, front on the left: e-paper behind a thin leaning front wall, speaker facing down onto the grilled lid, main board on standoffs, LED ring under the globe seat, charger with its USB-C port at the back notch">
 <defs><clipPath id="cpGlobe2"><rect x="0" y="0" width="810" height="144.0"/></clipPath><radialGradient id="gIn2" cx="50%" cy="95%" r="70%"><stop offset="0" style="stop-color:var(--glow);stop-opacity:.5"/><stop offset="1" style="stop-color:var(--glow);stop-opacity:0"/></radialGradient></defs>
 <text x="8" y="322" class="s b" style="text-anchor:start;letter-spacing:.08em">SECTION A–A</text>
-<g clip-path="url(#cpGlobe2)"><circle cx="330" cy="-63.8" r="240.0" fill="url(#gIn2)" stroke="var(--glow-edge)" stroke-width="5"/></g>
+<g clip-path="url(#cpGlobe2)"><circle cx="330" cy="-118.3" r="300.0" fill="url(#gIn2)" stroke="var(--glow-edge)" stroke-width="5"/></g>
 <line x1="20" y1="288.0" x2="740" y2="288.0" stroke="currentColor" stroke-opacity=".25"/>
-<path class="cut" fill-rule="evenodd" d="M138,270 L132,270 L134.9,235.1 L140.8,235.6 L138,270 Z M454.8,144 L454.8,120 L555,120 L565.3,223.5 L562.5,223.5 L562.5,229.5 L557.1,229.5 L547.4,129 L469.8,129 L469.8,153 L439.5,153 L439.5,160.5 L433.5,160.5 L433.5,153 L429,153 L429,144 L454.8,144 Z M205.2,144 L205.2,120 L144.4,120 L141,160.4 L146.7,160.8 L149.3,129 L190.2,129 L190.2,153 L220.5,153 L220.5,160.5 L226.5,160.5 L226.5,153 L231,153 L231,144 L205.2,144 Z"/>
+<path class="cut" fill-rule="evenodd" d="M138,270 L132,270 L134.9,235.1 L140.8,235.6 L138,270 Z M480.3,144 L480.3,120 L555,120 L565.3,223.5 L562.5,223.5 L562.5,229.5 L557.1,229.5 L547.4,129 L495.3,129 L495.3,153 L439.5,153 L439.5,160.5 L433.5,160.5 L433.5,153 L429,153 L429,144 L480.3,144 Z M179.7,144 L179.7,120 L144.4,120 L141,160.4 L146.7,160.8 L149.3,129 L164.7,129 L164.7,153 L220.5,153 L220.5,160.5 L226.5,160.5 L226.5,153 L231,153 L231,144 L179.7,144 Z"/>
 <path class="cut lidcut" fill-rule="evenodd" d="M391,270 L403.4,270 L403.4,261 L386.5,261 L386.5,270 L391,270 Z M289,270 L299.5,270 L299.5,261 L282.5,261 L282.5,270 L289,270 Z M312.6,270 L308.5,270 L308.5,261 L325.5,261 L325.5,270 L312.6,270 Z M368.1,270 L377.5,270 L377.5,261 L360.5,261 L360.5,270 L368.1,270 Z M545.1,270 L559.3,270 L559.3,261 L546,261 L546,246.6 L480,246.6 L480,261 L434.4,261 L434.4,249 L429.9,249 L429.9,261 L412.4,261 L412.4,270 L545.1,270 Z M346.9,270 L351.5,270 L351.5,261 L334.5,261 L334.5,270 L346.9,270 Z M213.5,261 L139.6,261 L139.6,270 L247.6,270 L247.6,261 L230.1,261 L230.1,249 L225.6,249 L225.6,261 L213.5,261 Z M260.7,270 L256.6,270 L256.6,261 L273.5,261 L273.5,270 L260.7,270 Z"/>
-<rect class="tpu" x="205.2" y="121.5" width="4.8" height="21.0"/>
-<rect class="tpu" x="450.0" y="121.5" width="4.8" height="21.0"/>
+<rect class="tpu" x="179.7" y="121.5" width="4.8" height="21.0"/>
+<rect class="tpu" x="475.5" y="121.5" width="4.8" height="21.0"/>
 <rect class="foot" x="123.5" y="270.0" width="36.0" height="18.0" rx="3"/>
 <rect class="foot" x="500.5" y="270.0" width="36.0" height="18.0" rx="3"/>
 <path class="box" d="M231.0 261.0 L429.0 261.0 L369.0 219.0 L291.0 219.0 Z"/>
@@ -155,7 +155,7 @@
 <text x="102.0" y="199.0" class="s" style="text-anchor:end">5 cm</text>
 <g class="dim"><line x1="132.0" y1="318" x2="570.0" y2="318"/><line x1="132.0" y1="312" x2="132.0" y2="324"/><line x1="570.0" y1="312" x2="570.0" y2="324"/></g>
 <text x="351.0" y="333" class="s">14.6 cm at the bottom: 6.6 in front of the centre, 8 behind</text>
-<polyline class="lead" points="454.5,132.0 588,42.0"/><text x="592" y="46.0" style="text-anchor:start">0.8 cm seat + TPU grip ring</text>
+<polyline class="lead" points="479.5,132.0 588,42.0"/><text x="592" y="46.0" style="text-anchor:start">0.8 cm seat + TPU grip ring</text>
 <polyline class="lead" points="495.0,124.5 588,80.0"/><text x="592" y="84.0" style="text-anchor:start">0.3 cm top, light hole Ø6.6 cm</text>
 <polyline class="lead" points="423.0,161.4 588,118.0"/><text x="592" y="122.0" style="text-anchor:start">LED ring held in a printed lip</text>
 <polyline class="lead" points="384.0,171.0 588,156.0"/><text x="592" y="160.0" style="text-anchor:start">Main board on 4 standoffs</text>

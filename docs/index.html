@@ -125,11 +125,11 @@
 
 <section id="overview">
   <h2>Overview</h2>
-  <p class="callout"><span><strong>Reading the sizes:</strong> all sizes are in centimetres. <b>Ø</b> means <i>diameter</i>, the width of a circle measured straight across its middle, so “Ø16 cm” is a circle 16 cm wide. For scale: the whole lamp is about 16 cm wide and 20 cm tall, roughly the width of an A4 sheet (21 cm) in height, and the globe is a bit bigger than a grapefruit.</span></p>
-  <p>A Ø16 cm opal glass globe in a 3D-printed base that tapers from Ø16 cm to Ø15 cm over its 5 cm height. The globe gives an even glow with no visible LEDs. The base holds every part, carries an always-on e-paper clock on its flat front, and sends the alarm sound out through the bottom.</p>
+  <p class="callout"><span><strong>Reading the sizes:</strong> all sizes are in centimetres. <b>Ø</b> means <i>diameter</i>, the width of a circle measured straight across its middle, so “Ø16 cm” is a circle 16 cm wide. For scale: the whole lamp is about 20 cm wide (the globe overhangs the 16 cm base) and 24 cm tall, a little taller than the width of an A4 sheet (21 cm), and the globe is about the size of a small melon.</span></p>
+  <p>A Ø20 cm opal globe in a 3D-printed base that tapers from Ø16 cm to Ø15 cm over its 5 cm height. The globe gives an even glow with no visible LEDs. The base holds every part, carries an always-on e-paper clock on its flat front, and sends the alarm sound out through the bottom.</p>
   <figure>
     <div class="fig night">
-<svg viewBox="0 0 760 450" role="img" aria-label="Front and side views of the lamp at full brightness: a 16 cm opal globe on a 5 cm tall printed base tapering from 16 to 15 cm, about 20 cm tall, with an e-paper clock window, four menu buttons in a row under it, and two tiny lamps (one lit, one dark) marking the touch pad">
+<svg viewBox="0 0 760 550" role="img" aria-label="Front and side views of the lamp at full brightness: a 20 cm opal globe on a 5 cm tall printed base tapering from 16 to 15 cm, about 24 cm tall, with an e-paper clock window, four menu buttons in a row under it, and two tiny lamps (one lit, one dark) marking the touch pad">
 <defs>
   <radialGradient id="gGlobe" cx="50%" cy="60%" r="58%"><stop offset="0" style="stop-color:var(--glass)"/><stop offset=".62" style="stop-color:var(--glow)"/><stop offset="1" style="stop-color:var(--glow-edge)"/></radialGradient>
   <radialGradient id="gHalo"><stop offset="0" style="stop-color:var(--glow);stop-opacity:.34"/><stop offset="1" style="stop-color:var(--glow);stop-opacity:0"/></radialGradient>
@@ -138,12 +138,13 @@
 </defs>
 <text x="72" y="24" class="s b" style="text-anchor:start;letter-spacing:.08em">FRONT</text>
 <text x="428" y="24" class="s b" style="text-anchor:start;letter-spacing:.08em">SIDE</text>
+<g transform="translate(0,75)">
 <line x1="20" y1="410" x2="740" y2="410" stroke="currentColor" stroke-opacity=".25"/>
 
-<circle cx="200" cy="230" r="205" fill="url(#gHalo)"/>
+<circle cx="200" cy="187" r="256" fill="url(#gHalo)"/>
 <ellipse cx="200" cy="410" rx="200" ry="16" fill="url(#gHalo)"/>
-<circle cx="200" cy="222" r="128" fill="url(#gGlobe)"/>
-<ellipse cx="158" cy="165" rx="34" ry="20" fill="#FFFFFF" fill-opacity=".22"/>
+<circle cx="200" cy="179" r="160" fill="url(#gGlobe)"/>
+<ellipse cx="148" cy="108" rx="42" ry="25" fill="#FFFFFF" fill-opacity=".22"/>
 <rect x="92" y="400" width="16" height="10" rx="2" class="foot"/><rect x="292" y="400" width="16" height="10" rx="2" class="foot"/>
 <path d="M72 400 L80 320 L320 320 L328 400 Z" fill="url(#gShell)"/>
 <path d="M128 400 L132 320 L268 320 L272 400 Z" fill="var(--shell-hi)" fill-opacity=".3"/>
@@ -155,19 +156,18 @@
 <circle cx="245.3" cy="385.8" r="3.5" fill="var(--shell-hi)" stroke="var(--shell-edge)" stroke-width=".7"/><rect x="243.5" y="388.8" width="3.5" height="1.8" fill="var(--shell-hi)" stroke="var(--shell-edge)" stroke-width=".7"/><circle cx="253.9" cy="385.8" r="2.8" fill="none" stroke="var(--shell-hi)" stroke-width="1.44"/><rect x="252.2" y="388.8" width="3.5" height="1.8" fill="var(--shell-hi)" stroke="var(--shell-edge)" stroke-width=".7"/><line x1="259" y1="385.5" x2="271" y2="383.5" stroke="var(--shell-hi)" stroke-opacity=".5"/><text x="273" y="385.5" class="s" style="font-size:7px;text-anchor:start">touch here</text>
 <circle cx="171.2" cy="386.4" r="4.6" fill="var(--shell-hi)" stroke="var(--shell-edge)" stroke-width="1.1"/><circle cx="190.4" cy="386.4" r="4.6" fill="var(--shell-hi)" stroke="var(--shell-edge)" stroke-width="1.1"/><circle cx="209.6" cy="386.4" r="4.6" fill="var(--shell-hi)" stroke="var(--shell-edge)" stroke-width="1.1"/><circle cx="228.8" cy="386.4" r="4.6" fill="var(--shell-hi)" stroke="var(--shell-edge)" stroke-width="1.1"/>
 
-<g class="dim"><line x1="72" y1="70" x2="328" y2="70"/><line x1="72" y1="64" x2="72" y2="76"/><line x1="328" y1="64" x2="328" y2="76"/></g>
-<text x="200" y="60" class="s">Ø16 cm opal glass globe</text>
-<g class="dim"><line x1="72" y1="430" x2="328" y2="430"/><line x1="72" y1="424" x2="72" y2="436"/><line x1="328" y1="424" x2="328" y2="436"/></g>
-<text x="200" y="446" class="s">Ø16 → Ø15 cm printed base</text>
+
+<g class="dim"><line x1="72" y1="455" x2="328" y2="455"/><line x1="72" y1="449" x2="72" y2="461"/><line x1="328" y1="449" x2="328" y2="461"/></g>
+<text x="200" y="471" class="s">Ø16 → Ø15 cm printed base</text>
 <g class="dim"><line x1="345" y1="320" x2="345" y2="400"/><line x1="339" y1="320" x2="351" y2="320"/><line x1="339" y1="400" x2="351" y2="400"/></g>
 <text x="352" y="364" class="s" style="text-anchor:start">5 cm</text>
-<g class="dim"><line x1="50" y1="94" x2="50" y2="410"/><line x1="44" y1="94" x2="56" y2="94"/><line x1="44" y1="410" x2="56" y2="410"/></g>
-<text x="44" y="254" class="s" style="text-anchor:end">≈20 cm</text>
+<g class="dim"><line x1="24" y1="19" x2="24" y2="410"/><line x1="18" y1="19" x2="30" y2="19"/><line x1="18" y1="410" x2="30" y2="410"/></g>
+<text x="12" y="214" class="s" transform="rotate(-90 12 214)">≈24 cm</text>
 
-<circle cx="540" cy="230" r="205" fill="url(#gHalo)"/>
+<circle cx="540" cy="187" r="256" fill="url(#gHalo)"/>
 <ellipse cx="548" cy="410" rx="190" ry="16" fill="url(#gHalo)"/>
-<circle cx="540" cy="222" r="128" fill="url(#gGlobe)"/>
-<ellipse cx="498" cy="165" rx="34" ry="20" fill="#FFFFFF" fill-opacity=".22"/>
+<circle cx="540" cy="179" r="160" fill="url(#gGlobe)"/>
+<ellipse cx="488" cy="108" rx="42" ry="25" fill="#FFFFFF" fill-opacity=".22"/>
 <rect x="452" y="400" width="16" height="10" rx="2" class="foot"/><rect x="634" y="400" width="16" height="10" rx="2" class="foot"/>
 <path d="M434 400 L441 320 L660 320 L668 400 Z" fill="url(#gShell)"/>
 <path d="M441 320 L660 320 L660.6 326 L440.5 326 Z" fill="url(#gTop)"/>
@@ -177,11 +177,14 @@
 <text x="700" y="372" class="s">USB-C</text>
 <path d="M520 414 q8 6 16 0 M520 420 q8 6 16 0" fill="none" stroke="currentColor" stroke-opacity=".45"/>
 <text x="548" y="440" class="s">sound exits under the base</text>
-<g class="dim"><line x1="434" y1="96" x2="668" y2="96"/><line x1="434" y1="90" x2="434" y2="102"/><line x1="668" y1="90" x2="668" y2="102"/></g>
-<text x="551" y="86" class="s">14.6 cm front to back (flat front)</text>
+<g class="dim"><line x1="434" y1="455" x2="668" y2="455"/><line x1="434" y1="449" x2="434" y2="461"/><line x1="668" y1="449" x2="668" y2="461"/></g>
+<text x="551" y="471" class="s">14.6 cm front to back (flat front)</text>
+</g>
+<g class="dim"><line x1="40" y1="70" x2="360" y2="70"/><line x1="40" y1="64" x2="40" y2="76"/><line x1="360" y1="64" x2="360" y2="76"/></g>
+<text x="200" y="60" class="s">Ø20 cm opal globe</text>
 </svg>
     </div>
-    <figcaption>Drawn to scale. The base tapers from Ø16 cm to Ø15 cm, so the 9 cm flat front leans back 4.6° toward you in bed. It carries a 5 × 2.5 cm e-paper window and, under it, four small buttons in a row (up, down, OK, back, left to right). Right of the row, where the copper foil of the touch pad sits behind the face, two tiny lamps — one lit, one dark, side by side so they read as one mark, not as two indicator dots — are engraved a pencil-line deep into the wall, so the pad that turns the lamp on and off reads as such without a label. The e-paper shows the time, the next prayer, the battery and which prayers ring, all day without glowing; at night a tap lights the globe at 5% so you can read it. The globe sits 0.8 cm deep in the top. The overall height depends on its neck, so measure it before the base is printed.</figcaption>
+    <figcaption>Drawn to scale. The base tapers from Ø16 cm to Ø15 cm, so the 9 cm flat front leans back 4.6° toward you in bed. It carries a 5 × 2.5 cm e-paper window and, under it, four small buttons in a row (up, down, OK, back, left to right). Right of the row, where the copper foil of the touch pad sits behind the face, two tiny lamps — one lit, one dark, side by side so they read as one mark, not as two indicator dots — are engraved a pencil-line deep into the wall, so the pad that turns the lamp on and off reads as such without a label. The e-paper shows the time, the next prayer, the battery and which prayers ring, all day without glowing; at night a tap lights the globe at 5% so you can read it. The globe sits 0.8 cm deep in the top, on a Ø9.7 cm neck, and overhangs the base: it is 20 cm wide against the base's 16 cm.</figcaption>
   </figure>
 
   <div class="verdict" aria-label="Final choices at a glance">
