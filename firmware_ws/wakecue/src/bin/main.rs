@@ -34,6 +34,7 @@ use lamp_core::settings::{
 use wakecue::clock;
 use wakecue::display::{Face, NextUp, PanelBus, Standby};
 use wakecue::player::Player;
+use wakecue::rail::Rail;
 use wakecue::ring::{self, LedRing};
 
 // The phone setup needs a heap and the radio, which the other binaries in this crate do not
@@ -110,6 +111,9 @@ fn main() -> ! {
         timer: peripherals.TIMG0,
         interrupt: peripherals.FROM_CPU_INTR0,
     });
+    // The rail switch (GPIO5). Not switched on here: only a wake that has a ring step or a sound to
+    // give powers it, because the MP3 board pops its speaker whenever its ground is joined.
+    let mut rail = Rail::new(peripherals.GPIO5);
     // The MP3 board's serial link. Nothing is sent until something is to be played.
     let mut player = Player::new(peripherals.UART1, peripherals.GPIO20, peripherals.GPIO21);
     // The LED ring. It holds the colour it was last given through the sleep, so each wake sets it
@@ -183,6 +187,9 @@ fn main() -> ! {
     // The event this boot has to answer for, if one came due: the prayer's sound or a user alarm.
     // The light ramp is not an alarm, and nothing is wired to ring yet.
     let mut alarm: Option<(i64, Action)> = None;
+    // Whether the ring is showing a light ramp that the next wakes carry on: the rail then stays on
+    // through the sleep, because a ring without power goes dark.
+    let mut ring_lit = false;
     // The panel is taken over before the clock sync, which can take half a minute with nothing on
     // the glass otherwise. It is only drawn on when there is something to say.
     let mut face = Face::new(PanelBus::new(spi, dc), busy, rst, woken);
@@ -269,9 +276,13 @@ fn main() -> ! {
                         "ring: ramp {} of {} s, ({=u8}, {=u8}, {=u8})",
                         elapsed_s, total_s, px[0], px[1], px[2]
                     );
+                    rail.on();
                     led.show(px);
+                    ring_lit = true;
                 }
-                None => led.off(),
+                // Nothing to show. A ring that a held rail kept lit goes dark when the rail drops
+                // at the end of this wake.
+                None => {}
             }
         }
 
@@ -340,9 +351,12 @@ fn main() -> ! {
             ALARM_MS / 1000
         );
         // The end of the ramp: warm white at the cap, held while the sound plays.
+        rail.on();
         led.show(ramp_pixel(1, 1, ring::CAP));
+        rail.settle();
         let answered = run_alarm(&mut face, &mut i2c, &mut pad, &mut player, ring, title, at, zone);
         led.off();
+        ring_lit = false;
         info!(
             "alarm: {}",
             if answered {
@@ -426,6 +440,8 @@ fn main() -> ! {
                 }
                 if let Some(pv) = outcome.preview {
                     info!("preview: file {} at volume {}", pv.file, pv.volume);
+                    rail.on();
+                    rail.settle();
                     player.set_volume(pv.volume);
                     player.play_file(pv.file);
                     previewing = true;
@@ -575,6 +591,12 @@ fn main() -> ! {
         Stamp(wakes_at),
         Stamp(zone.to_local(wakes_at))
     );
+    // The rail is kept on through the sleep only while the ring shows a light ramp, since the ring
+    // holds its colour for as long as it has power and a ramp is one step a minute.
+    rail.finish(ring_lit);
+    if ring_lit {
+        info!("rail: held on through the sleep for the light ramp");
+    }
     let mut lp = LowPower::new(peripherals.LPWR);
     lp.sleep_deep(RtcSleepConfig::deep());
 }

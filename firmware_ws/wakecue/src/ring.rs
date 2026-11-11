@@ -1,9 +1,9 @@
 //! The 16-pixel WS2812 ring on GPIO10, driven by the RMT peripheral.
 //!
 //! The pixels keep the colour they were last sent for as long as they have power, so the lamp sets
-//! the ring and goes back to sleep: the glow carries on through the sleep. Until the rail switch
-//! exists the ring is powered all the time, which is why `off` is sent on every wake that is not
-//! inside a ramp: it is the only way the ring goes dark.
+//! the ring and goes back to sleep: the glow carries on through the sleep, because the lamp keeps
+//! the rail switch on through a sleep that is inside a ramp. Any other sleep drops the rail, and the
+//! ring goes dark by itself.
 
 use esp_hal::Blocking;
 use esp_hal::gpio::Level;
