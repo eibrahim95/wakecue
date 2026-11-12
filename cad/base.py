@@ -93,14 +93,16 @@ WASHER_R = 12.5      # ballast cups, Ø25: lead sinkers or steel nuts
 CUP_H = 10.7         # round: three cups this deep hold what four 8 mm ones did (3 x 10.7 = 4 x 8)
 
 # the MP3 board (DFPlayer Mini HW-247A), lying flat, card slot toward the back wall. Measured with
-# calipers, 13 Nov: 20 x 20 mm, and 7 mm from the underside of the board to the top of the card
-# socket with the pin legs out, so the socket stands 5.4 mm above the 1.6 mm PCB. A card pushed home
-# stands about 3 mm proud of the body, so the window is for pinching it, not for reaching in.
+# calipers, 13 Nov: 20 x 20 mm, and 7 mm tall with the pin legs out. Which face that 7 mm starts at is
+# open: if it runs from the PCB's underside to the top of the card socket the socket is 5.4 mm above
+# the board, and if it is only what stands above the PCB the socket is 7.0. The stack below says 5.4;
+# one number changed if the other reading is the right one. A card pushed home stands about 3 mm proud
+# of the body, so the window is for pinching it, not for reaching in.
 PLAYER_W, PLAYER_L = 20.0, 20.0         # across the pin rows, and along the card's way in
 PLAYER_CLR = 0.4                        # each side
 PLAYER_POST_H = 3.0                     # the board's underside above the lid (chip and solder)
 PLAYER_PCB_T = 1.6
-PLAYER_SOCKET_H = 5.4                   # microSD socket above the board: the 7 mm measured less the PCB
+PLAYER_SOCKET_H = 5.4                   # microSD socket above the board: the 7 mm less the 1.6 mm PCB, if that is where the 7 mm starts
 CARD_WIN_W, CARD_WIN_H = 14.0, 7.0      # the window in the wall: the card is 11 x 1 mm, the rest is for a fingernail
 PLAYER_WIRE_SIDE = 3.0                  # room each side of the board for the wires soldered to its pads
 PLAYER_WIRE_BACK = 3.0                  # and behind it

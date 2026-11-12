@@ -189,9 +189,10 @@ Numbers or sightings only the board can give.
   unmeasured; every mark is kept six pixels in until then. (move 3)
 - **The MP3 board's place in the base:** the board is at the back right with a 14 × 7 mm window through
   the wall for the microSD card, and three deeper ballast cups instead of four. **Measured with calipers on
-  13 Nov:** 20 × 20 mm, and 7 mm from the underside of the board to the top of the card socket with the pin
-  legs out, so the socket stands 5.4 mm above the 1.6 mm PCB. A card pushed home stands about 3 mm proud of
-  the body. `PLAYER_W`, `PLAYER_L` and `PLAYER_SOCKET_H` in `cad/base.py` now hold those numbers and the
+  13 Nov:** 20 × 20 mm, and 7 mm tall with the pin legs out. Which face that 7 mm starts at is still open,
+  and it is worth 1.6 mm of window height: read from the PCB's underside to the top of the card socket,
+  the socket is 5.4 mm above the board (what `cad/base.py` says now); read as only what stands above the
+  PCB, the socket is 7.0. A card pushed home stands about 3 mm proud of the body. With the 5.4 reading the
   STLs were regenerated: all five watertight, and `player_search.py` still finds −30° the only free turn.
   The tipping figures on the hardware page are for four cups and have not been redone.
 - **The globe's neck: two of its four numbers are missing.** The measuring page
