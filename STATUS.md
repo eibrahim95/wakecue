@@ -4,15 +4,17 @@ The one place that says where the build stands and what is in hand.
 `docs/` is reference and does not repeat any of this. Update this file in the
 same commit as the build-log row that changes it.
 
-Last updated: 12 Nov 2026
+Last updated: 13 Nov 2026
 
 ## Current move
 
 **Roadmap move 2 · It wakes you** is in progress; move 1 is built and seen (the last gate checks are
 in "Written but not yet seen"). The sound half of move 2 is done on the bench and in the app: the
 MP3 board plays by file number, the menu chooses and previews sounds, and a due prayer or alarm
-plays its own. The LED ring is in the app, and the rail switch (AO3400 on GPIO5) is fitted and
-reported working (12 Nov). Not yet done: the rail-off current, and the ring at 3.2-3.5 V.
+plays its own. The LED ring is in the app, the rail switch (AO3400 on GPIO5) is fitted, and the rail
+now comes on only for a wake that needs it: flashed on 13 Nov and reported working on every point
+asked of it, including no click on a plain minute tick and nothing drawn with the rail off.
+Not yet done: the ring at 3.2-3.5 V, and what the ring does after an adhan ends.
 The plan and its gates are in `docs/index.html#roadmap`. Move 3 (it ships) follows.
 
 ## Seen on the board
@@ -83,41 +85,41 @@ Each line has a row in `docs/build-log.html`.
   ring and the MP3 board are powered from the LM2596 at 3.2 V, itself fed by a 5 V 1 A charger; the
   ESP32 is on USB. Reported on 12 Nov: it works. Reported with it: a small click from the speaker on
   every one-minute wake, because that firmware switched the rail on at the start of every wake and the
-  MP3 board pops when its ground is joined. Not reported: the current with the rail off, the ring's
-  colours at 3.2 V, and whether the held rail keeps the glow through the sleep (see below).
+  MP3 board pops when its ground is joined. Not reported then: the current with the rail off, the ring's
+  colours at 3.2 V, and whether the held rail keeps the glow through the sleep. The first and the third
+  were answered on 13 Nov (next entry); the ring at 3.2 V is still open.
+- **The rail only when needed (13 Nov):** `wakecue/src/rail.rs`. A plain minute tick leaves GPIO5 alone,
+  so the ring and the MP3 board stay unpowered and the click is gone. A light-ramp wake switches the rail
+  on, sets the ring, and holds GPIO5 high through the sleep (`set_pad_hold`), so the glow is still there
+  at the next wake and the player is not power-cycled each minute; any other sleep drops the rail. An
+  alarm, an adhan and a menu preview switch it on and wait 1.5 s for the MP3 board before the first
+  command: a due prayer or alarm and a preview both started their sound. The 3.2 V line reads 0 on the
+  meter with the gate low, so nothing leaks through the ring's data pin or the player's serial pins.
 
 ## Written but not yet seen
 
-- **The rail only when needed (12 Nov):** `wakecue/src/rail.rs`. A plain minute tick no longer touches
-  GPIO5, so the ring and the MP3 board stay unpowered and the click should go. A light-ramp wake
-  switches the rail on, sets the ring, and holds GPIO5 high through the sleep (`set_pad_hold`) so the
-  ring keeps its glow and the player is not power-cycled each minute; any other sleep drops the rail.
-  An alarm, an adhan or a menu preview switches it on and waits 1.5 s for the MP3 board to start before
-  the first command (an estimate, not measured). Builds in both DEV_MODE settings; not flashed. To see:
-  no click on a plain minute tick, one pop at most when a ramp starts or a sound ends, the ring keeps
-  its glow between ramp wakes (the hold through deep sleep is unproven), and the rail-off current.
 - **The face, rearranged:** the date sits under the time, a crescent moon in the top-right corner
   replaces "z z z" as the sleep mark (the corner is kept for the battery later), "Next:" moved down
-  5 px, and thin vertical lines separate the five prayers. Builds; not flashed, so the spacing is
-  unseen on the panel.
+  5 px, and thin vertical lines separate the five prayers. On the glass since 13 Nov; nobody has read
+  the spacing back off it.
 - **The prayer strip:** each name and its bell (solid when the prayer rings, outlined and slashed when not) are centred as one piece over its time, the five columns
   are centred on the rule, and the prayer named on the "Next:" line is drawn white on black (not
-  when the next thing is an alarm). Builds; not flashed.
+  when the next thing is an alarm). On the glass since 13 Nov; not read back.
 - **One rule for every settings screen:** Up and Down only move between rows. OK on a value row
   activates it (the row turns black, the value sits between `<` and `>`), Up and Down then change
   it, and OK or Back deactivates it where it stands. OK on the Rings row flips it; OK on the boxed
   Save or Delete does it. Back with nothing active discards the screen. A footer line says what the
-  buttons do right now. Covers the alarm editor, a prayer's screen, Sound and Time zone. 252 host
-  tests pass and it builds; not flashed, so the drawing is unseen on the panel.
+  buttons do right now. Covers the alarm editor, a prayer's screen, Sound and Time zone. 256 host
+  tests pass and it builds. On the glass since 13 Nov; the drawing has not been read back.
 - **Sounds and volumes, chosen and played:** the top menu's **Sound** row sets the general volume,
   the default adhan and the default alarm sound (each 1 to 100); each prayer has a screen with Rings,
   Sound and Volume, and each alarm has Sound and Volume rows, every one with Default. Picking a sound
   or a level plays it as you step (command 0x12 by file number, 120 ms after each command). A due
   prayer plays its adhan once and an alarm repeats its sound, both climbing from volume 1 over the fade.
   Heard on the board (8 Nov): stepping the default adhan plays each sound, once the gap between
-  commands was added. Not yet reported: the prayer screens, the alarm editor's rows, and a due prayer
-  or alarm ringing by itself. The step was heard with the player on the 5V pin; the rail switch has
-  since been fitted (above) and nothing yet measures the rail-off draw.
+  commands was added. A due prayer or alarm and a menu preview start their sound through the rail
+  switch, so the 1.5 s wait for the player's ground is enough (13 Nov). Not yet reported: the prayer
+  screens and the alarm editor's rows on the panel.
 - **The sound library on the card:** `tools/audio_card.py` builds it, in the order of
   `tools/ringtone_order.txt`. Adhan 0001-0021 are the IslamCan files; alarm sounds start at 0101 with
   Egypt and the Arab world first (a traditional mizmar from Cairo, an Egyptian wedding, an orange
@@ -159,6 +161,8 @@ LM2596 at 3.2 V (5 V 1 A charger in) and take their ground through the AO3400.
 straight. It came with a black ceiling fitting (a ring with an E27 socket) that it twists onto through
 three notches in its neck rim; neither is used, the printed seat holds the neck by friction.
 
+**The lead shot (12 Nov):** bought and arrived; not yet weighed, and not poured into the base (no base printed).
+
 **In hand but not fitted:** INA219, NCR18650B + holder + TP4056, CR2032, slide switch,
 perfboard, the fallback parts (MT3608, AO3401, 1N5819WF).
 
@@ -168,7 +172,6 @@ power LED are still on; the DS3231 charge resistor (most likely `R4`, decided
 
 ## Still to buy
 
-- Lead shot for ballast (Amazon.eg).
 - The print from Hawk: body, lid, TPU grip ring and four feet, four button
   caps. Repeat the quote; the body has changed since 25 Oct.
 
@@ -180,9 +183,6 @@ Numbers or sightings only the board can give.
   by ear), so the player needs no boost. Still open: the LED ring, rated from 3.5 V, now on the 3.2 V
   supply but its colours at that voltage not reported; the file count and resets were not checked at low voltage. The fallback is the MT3608
   boost.
-- **Switched ground:** built 12 Nov and working. Does anything leak through the ring or
-  player pins while their ground is off? Not measured: put the meter in series on the 3.2 V line with
-  the gate low; it should read about 0. (move 2)
 - **Sleep current:** an estimate. The battery calculator assumes 1 mA. (move 3)
 - **Panel's hidden edge:** which six rows or columns the e-paper hides is
   unmeasured; every mark is kept six pixels in until then. (move 3)
@@ -211,25 +211,30 @@ Numbers or sightings only the board can give.
 ## Next steps, in the order I would take them
 
 1. **Check what is written but not seen** (list above): the prayer screens, the alarm editor's Sound
-   and Volume rows, and a due prayer or alarm ringing by itself (set an alarm a minute ahead with
-   the card in). Then step through the alarm sounds 1 to 88 and say which ringtones are wrong, quiet
-   or unwanted; swap them with `tools/ringtone_order.txt` and `tools/audio_card.py`.
-2. **Low cell voltage:** the player and speaker are done (they played at 4.2, 3.5 and 3.2 V from
-   the LM2596). The ring's check at 3.2-3.5 V comes with step 4, once the ring is wired.
-3. **The rail switch:** fitted and working (12 Nov). Flash the rail-on-demand firmware and listen for
-   the click on a plain minute tick, then measure the draw with the rail off and check the ring keeps
-   its glow through a ramp's sleeps.
-4. **The LED ring** in the app: done, now behind the rail switch (see "Seen on the board"); what is left
-   is the ring's check at 3.2-3.5 V and deciding what it does after an adhan.
-5. **The CPU clock:** the app uses `CpuClock::max()` (160 MHz). esp-radio needs at least 80 MHz for
+   and Volume rows, the rearranged face and the prayer strip on the glass. Then step through the alarm
+   sounds 1 to 88 and say which ringtones are wrong, quiet or unwanted; swap them with
+   `tools/ringtone_order.txt` and `tools/audio_card.py`.
+2. **The ring at 3.2-3.5 V:** the rail switch now lets the ring be darkened and measured, so this is one
+   look at the ring on the 3.2 V supply, then the decision on what it does after an adhan ends (it goes
+   dark now).
+3. **The CPU clock:** the app uses `CpuClock::max()` (160 MHz). esp-radio needs at least 80 MHz for
    Wi-Fi. Measure how long a normal minute-tick boot is awake, then try 80 MHz and re-check the Wi-Fi
    sync, the setup mode and the panel. Not started.
-6. **The base:** measure the real MP3 board and its card socket (width, length, socket height above
+4. **The base:** measure the real MP3 board and its card socket (width, length, socket height above
    the board), set `PLAYER_W`, `PLAYER_L`, `PLAYER_POST_H`, `PLAYER_SOCKET_H` in `cad/base.py`,
    rerun `python base.py round`, redo the tipping estimate once the real printed weights are known, and
    fix the SuperMini pin rows in `docs/hardware.html` (see below). Nothing has been printed. Print the TPU
    grip ring first and see whether it holds the globe.
-7. **Buy:** lead shot, then the repeat quote from Hawk (see "Still to buy").
+5. **Buy:** the repeat quote from Hawk (see "Still to buy"). The lead shot has arrived (12 Nov); weigh it,
+   since the tipping estimate assumes about 100 g in the three cups.
+6. **The cell and the charger (move 3), none of it done:** the NCR18650B, its holder and the TP4056 are in
+   hand and unfitted. In order: switch off the SuperMini's and the DS3231's power LEDs; check the cell's
+   voltage and the TP4056's output and polarity with the meter before anything is connected; run the board
+   from the cell with the charger unplugged; charge it through the TP4056 while the board runs and watch
+   termination with the lamp asleep; note the cell voltage at which the chip resets; fit the INA219 on the
+   same I²C wires (0x40) and read a plausible cell voltage with the ring and player off; then measure the
+   whole-board sleep current (under 0.5 mA is the gate) and replace the calculator's 1 mA estimate.
+   Check on the parts themselves whether the cell and the TP4056 board have protection; this file does not say.
 
 ## Ideas for later
 
@@ -260,7 +265,7 @@ Numbers or sightings only the board can give.
   copy only the files that changed and compare every file afterwards.
 - **Building:** `just build`, `just lamp`, `just sound`, `just numbering` from `firmware_ws/wakecue`
   (`just` loads `DEV_MODE` from `.env`; plain `cargo build` fails without it). `cargo test` from
-  `firmware_ws` runs 248 core tests and the settings tool's 8. The block grew to 208 payload bytes; an
+  `firmware_ws` runs 256 core tests and the settings tool's 8. The block grew to 208 payload bytes; an
   old 200-byte block still loads as all Default.
 - **The CAD** needs `trimesh`, `numpy` and `manifold3d`. They were in `/tmp/cadvenv`, which may be
   gone; this machine's shell cannot reach the package file host, so recreate it with `uv` or from the
