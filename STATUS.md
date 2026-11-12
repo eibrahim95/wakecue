@@ -161,7 +161,8 @@ LM2596 at 3.2 V (5 V 1 A charger in) and take their ground through the AO3400.
 straight. It came with a black ceiling fitting (a ring with an E27 socket) that it twists onto through
 three notches in its neck rim; neither is used, the printed seat holds the neck by friction.
 
-**The lead shot (12 Nov):** bought and arrived; not yet weighed, and not poured into the base (no base printed).
+**The lead shot (12 Nov):** bought and arrived, and weighed at **95 g in its plastic container**, so less than
+that will go in the cups; not poured (no base printed). The tipping estimate's "about 100 g" is close.
 
 **In hand but not fitted:** INA219, NCR18650B + holder + TP4056, CR2032, slide switch,
 perfboard, the fallback parts (MT3608, AO3401, 1N5819WF).
@@ -186,12 +187,21 @@ Numbers or sightings only the board can give.
 - **Sleep current:** an estimate. The battery calculator assumes 1 mA. (move 3)
 - **Panel's hidden edge:** which six rows or columns the e-paper hides is
   unmeasured; every mark is kept six pixels in until then. (move 3)
-- **The MP3 board's place in the base:** the model now has the board at the back right with a 14 × 7 mm
-  window through the wall for the microSD card, and three deeper ballast cups instead of four.
-  Checked only against the model (no overlaps, watertight), never printed. Measure the real board and
-  its card socket with calipers first: the model assumes 21 × 21 mm, a socket about 5 mm above the lid,
-  and a socket the card can be reached on and removed from through that window. The tipping figures
-  on the hardware page are for four cups and have not been redone.
+- **The MP3 board's place in the base:** the board is at the back right with a 14 × 7 mm window through
+  the wall for the microSD card, and three deeper ballast cups instead of four. **Measured with calipers on
+  13 Nov:** 20 × 20 mm, and 7 mm from the underside of the board to the top of the card socket with the pin
+  legs out, so the socket stands 5.4 mm above the 1.6 mm PCB. A card pushed home stands about 3 mm proud of
+  the body. `PLAYER_W`, `PLAYER_L` and `PLAYER_SOCKET_H` in `cad/base.py` now hold those numbers and the
+  STLs were regenerated: all five watertight, and `player_search.py` still finds −30° the only free turn.
+  The tipping figures on the hardware page are for four cups and have not been redone.
+- **The globe's neck: two of its four numbers are missing.** The measuring page
+  (`~/Documents/artifact-shelf/wakecue/explainer/globe-neck-measuring.html`) separates the ring at the
+  very end (A, the flange with the bayonet notches, which is the 97 mm) from the plain cylinder just
+  above it (C), and the seat currently uses 97 for both. Still to measure: **B** the flange's height,
+  **C** the cylinder's diameter and **D** the cylinder's height. Until then the grip ring is drawn with
+  a bore of exactly 97 mm inside a 100.2 mm seat, which is no interference at all, so it would centre
+  the globe rather than hold it; the seat needs the cylinder's diameter with a deliberate preload and a
+  counterbore for the flange.
 - **The base:** never test-printed. The seat is now sized for the real globe (`python base.py round`, neck
   97 mm, generated and watertight), held by the TPU grip ring alone: whether that grips a 165 g globe
   firmly enough is unknown until the ring is printed. The tipping estimate for a 165 g, 20 cm globe is
@@ -220,13 +230,13 @@ Numbers or sightings only the board can give.
 3. **The CPU clock:** the app uses `CpuClock::max()` (160 MHz). esp-radio needs at least 80 MHz for
    Wi-Fi. Measure how long a normal minute-tick boot is awake, then try 80 MHz and re-check the Wi-Fi
    sync, the setup mode and the panel. Not started.
-4. **The base:** measure the real MP3 board and its card socket (width, length, socket height above
-   the board), set `PLAYER_W`, `PLAYER_L`, `PLAYER_POST_H`, `PLAYER_SOCKET_H` in `cad/base.py`,
-   rerun `python base.py round`, redo the tipping estimate once the real printed weights are known, and
-   fix the SuperMini pin rows in `docs/hardware.html` (see below). Nothing has been printed. Print the TPU
-   grip ring first and see whether it holds the globe.
-5. **Buy:** the repeat quote from Hawk (see "Still to buy"). The lead shot has arrived (12 Nov); weigh it,
-   since the tipping estimate assumes about 100 g in the three cups.
+4. **The base:** the MP3 board and its socket are measured and in `cad/base.py` (13 Nov). Still to do:
+   the globe's three missing neck numbers (B, C, D) and the seat redrawn on the cylinder's diameter,
+   `python base.py round` again, the tipping estimate redone once the real printed weights are known,
+   and the repeat quote. Nothing has been printed. Print the TPU grip ring first and see whether it
+   holds the globe.
+5. **Buy:** the repeat quote from Hawk (see "Still to buy"). The lead shot has arrived and weighs
+   95 g in its container (12 Nov); weigh it without.
 6. **The cell and the charger (move 3), none of it done:** the NCR18650B, its holder and the TP4056 are in
    hand and unfitted. In order: switch off the SuperMini's and the DS3231's power LEDs; check the cell's
    voltage and the TP4056's output and polarity with the meter before anything is connected; run the board
@@ -256,7 +266,7 @@ Numbers or sightings only the board can give.
 
 - **The SuperMini's pin rows.** With the USB-C at the top and the component side up, 5V, GND, 3V3,
   GPIO4, 3, 2, 1, 0 are on the **right** row and GPIO5, 6, 7, 8, 9, 10, 20, 21 on the **left**. The
-  wiring diagram in `docs/hardware.html` lists them the other way round: it is wrong, not yet fixed.
+  wiring diagram in `docs/hardware.html` listed them the other way round; it was corrected on 13 Nov.
   The player test wires: 5V and GND to the player's VCC and GND, GPIO21 through 1 kΩ to its RX,
   GPIO20 through 1 kΩ from its TX, the speaker across its two outer pads (SPK1 +, SPK2 −).
 - **The MP3 board** (DFPlayer Mini clone, HW-247A V0.5.1) has no letters printed on it. Hold it with
