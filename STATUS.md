@@ -235,6 +235,14 @@ Numbers or sightings only the board can give.
    same I²C wires (0x40) and read a plausible cell voltage with the ring and player off; then measure the
    whole-board sleep current (under 0.5 mA is the gate) and replace the calculator's 1 mA estimate.
    Check on the parts themselves whether the cell and the TP4056 board have protection; this file does not say.
+7. **The battery gauge on the face, which nothing draws yet:** `core::ina219` has the bus-voltage decode,
+   the power-down config word and a generic 18650 curve in 100 mV steps, tested on the PC; no firmware
+   reads it and the face has no cell mark, the top-right corner being the crescent sleep mark. Still to
+   do: wire the INA219 on the shared I²C (`0x40`), read it once per boot and leave it powered down (about
+   6 µA, where a continuous read would add around 1 mA), decide what the mark is, and replace the generic
+   curve with the one measured on the real cell. Move 3's gate asks only for the INA219 fitted and reading
+   a plausible cell voltage, so the mark on the face is extra to it: decide whether the lamp ships with
+   the gauge or the corner stays empty.
 
 ## Ideas for later
 
