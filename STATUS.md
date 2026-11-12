@@ -240,8 +240,9 @@ Numbers or sightings only the board can give.
    the PC; no firmware reads it and the face has no cell mark, the top-right corner being the crescent
    sleep mark. Move 3's gate now asks for the charge on the face, so to do: wire the INA219 on the shared
    I²C (`0x40`), read it once per boot and leave it powered down (about 6 µA, where a continuous read
-   would add around 1 mA), settle where the mark sits next to the crescent, and replace the generic curve
-   with the one measured on the real cell. Written when move 3 starts, not before.
+   would add around 1 mA), draw it beside the crescent — decided 13 Nov: crescent where it is, a 14 × 9
+   cell glyph with a 2 × 3 nub across x 206–222, three 4-px segments inside — and replace the generic
+   curve with the one measured on the real cell. Written when move 3 starts, not before.
 
 ## Ideas for later
 
