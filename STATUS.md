@@ -285,9 +285,12 @@ Numbers or sightings only the board can give.
   (`just` loads `DEV_MODE` from `.env`; plain `cargo build` fails without it). `cargo test` from
   `firmware_ws` runs 256 core tests and the settings tool's 8. The block grew to 208 payload bytes; an
   old 200-byte block still loads as all Default.
-- **The CAD** needs `trimesh`, `numpy` and `manifold3d`. They were in `/tmp/cadvenv`, which may be
-  gone; this machine's shell cannot reach the package file host, so recreate it with `uv` or from the
-  desktop. `cad/player_search.py` checks where the board can sit.
+- **The CAD** needs `trimesh`, `numpy` and `manifold3d`. They are in `/tmp/cadvenv` and still work
+  (checked 13 Nov: run things as `/tmp/cadvenv/bin/python base.py round`); if it is wiped, this machine's
+  shell cannot reach the package file host, so recreate it with `uv` or from the desktop.
+  `cad/player_search.py` checks where the board can sit, and `base.py` prints `watertight=` and the
+  bounding box for each part, which is the check to read. The STLs are git-ignored: regenerate, do not
+  expect a diff.
 - **Network from the shell** reaches only some hosts: Wikimedia (throttles hard: wait minutes after a
   429), Openverse and Freesound's CDN, a few free-sound sites. GitHub, Hugging Face and the Python
   package files are blocked. The Chrome DevTools tools exist for the rest.
