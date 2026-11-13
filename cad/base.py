@@ -25,12 +25,15 @@ grows from the top plate or the walls, so it needs no supports. The button
 block lies on its side then, which prints cleanly as a plain bridge-free block.
 Print the lid flat, the grip ring and feet in TPU, and four button caps.
 
-Run:  python base.py round|rect [NECK_D]
+Run:  python base.py round|rect [FLANGE_D]
 
-NECK_D is the globe's outside neck diameter in mm. The default, 97, is the globe in hand: neck 97 mm
-outside, 81 mm inside, 15 mm straight, 165 g, 20 cm wide and tall. The globe has three notches in the
-rim of its neck (a bayonet fitting that came with a black E27 holder); the printed seat ignores them
-and holds the neck by the TPU grip ring.
+FLANGE_D is the diameter of the notched ring at the very end of the globe's neck, in mm. The default,
+97, is the globe in hand, measured 13 Nov: an end ring 97 mm across and 3 to 5 mm thick with three
+bayonet notches (and lugs whose thickness ramps about 2 mm between them), a plain cylinder of 86.6 mm
+above it, 13 to 15 mm of it straight, 81 mm clear inside, 165 g, 20 cm wide and tall. The seat grips
+the ring, because the ring is wider than the cylinder above it and anything sized to the cylinder would
+block its way in; the notches are what the TPU grips, and the printed seat does not use them as a
+bayonet.
 """
 import math
 import sys
@@ -43,7 +46,13 @@ from manifold3d import CrossSection, JoinType, Manifold, set_circular_segments
 set_circular_segments(256)
 
 SHAPE = sys.argv[1] if len(sys.argv) > 1 else "round"
-NECK_D = float(sys.argv[2]) if len(sys.argv) > 2 else 97.0  # the globe in hand, measured 11 Nov
+
+# --- the globe's neck, measured 13 Nov (A to D from the measuring page) ---------
+FLANGE_D = float(sys.argv[2]) if len(sys.argv) > 2 else 97.0   # A: the notched ring at the very end
+FLANGE_H = 5.0      # B: measured 3 to 5 mm, and the lugs ramp about 2 mm between notches; take the most
+NECK_D = 86.6       # C: the plain cylinder above the ring
+NECK_H = 15.0       # D: 13 to 15 mm of straight cylinder, so the glass starts well above the seat
+PRELOAD = 0.5       # each side: how much smaller the TPU bore is than the flange, which is the grip
 
 # --- shared parameters ------------------------------------------------------
 H = 50.0
@@ -56,8 +65,9 @@ CLR = 0.25
 LIGHT_R = 33.0       # light hole (ring LEDs sit at r ~ 27-32)
 RING_R = 34.0        # 16-LED ring, 68 mm
 GRIP_T = 1.6         # TPU grip ring wall
-SEAT_R = NECK_D / 2 + GRIP_T
-SEAT_DEPTH = 8.0
+GRIP_BORE_R = FLANGE_D / 2 - PRELOAD     # the TPU ring's bore: under the flange by PRELOAD each side
+SEAT_R = GRIP_BORE_R + GRIP_T            # the body's seat bore, which the ring drops into
+SEAT_DEPTH = FLANGE_H + 3.0              # the ring is gripped and 3 mm of wall stands above it (well under NECK_H)
 COLLAR_Z0 = H - SEAT_DEPTH - 3.0   # 3 mm floor under the seat
 
 WIN_W, WIN_H, WIN_Z = 50.0, 25.0, 30.5       # e-paper window, high enough to clear the buttons
@@ -345,8 +355,10 @@ def lid():
 
 
 def grip_ring():
-    """TPU ring that lines the seat and grips the globe neck."""
-    return cyl(SEAT_R - 0.1, 0, SEAT_DEPTH - 0.5) - cyl(NECK_D / 2 - 0.3, -1, SEAT_DEPTH)
+    """TPU ring that lines the seat and grips the globe. Its bore is PRELOAD under the notched end ring
+    on each side, so it deforms into the notches on the way in and the globe can still be lifted out;
+    the narrower cylinder above the ring never touches it."""
+    return cyl(SEAT_R - 0.1, 0, SEAT_DEPTH - 0.5) - cyl(GRIP_BORE_R, -1, SEAT_DEPTH)
 
 
 def button_cap():

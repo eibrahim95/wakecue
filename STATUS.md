@@ -157,9 +157,11 @@ PCF8574 + four buttons, e-paper, the MP3 board and its speaker (GPIO20/21 throug
 (GPIO10 through 330 Ω), and the AO3400 rail switch (GPIO5). The ring and the MP3 board run from the
 LM2596 at 3.2 V (5 V 1 A charger in) and take their ground through the AO3400.
 
-**The globe (11 Nov):** white opal, 20 cm wide and tall, 165 g; neck Ø97 mm outside, Ø81 mm inside, 15 mm
-straight. It came with a black ceiling fitting (a ring with an E27 socket) that it twists onto through
-three notches in its neck rim; neither is used, the printed seat holds the neck by friction.
+**The globe (11 Nov, neck measured 13 Nov):** white opal, 20 cm wide and tall, 165 g. The neck ends in a
+notched ring **Ø97 mm** across and **3–5 mm** thick (A, B), with a plain cylinder **Ø86.6 mm** above it
+(C), **13–15 mm** of it straight (D), and **Ø81 mm** clear inside. It came with a black ceiling fitting (a
+ring with an E27 socket) that it twists onto through three notches in that end ring; neither is used. The
+seat grips the end ring, since the ring is wider than the cylinder above it; see the open question below.
 
 **The lead shot (12 Nov):** bought and arrived, and weighed at **95 g in its plastic container**, so less than
 that will go in the cups; not poured (no base printed). The tipping estimate's "about 100 g" is close.
@@ -195,21 +197,25 @@ Numbers or sightings only the board can give.
   `PLAYER_L` and `PLAYER_SOCKET_H` in `cad/base.py` hold those numbers and the STLs were regenerated: all
   five watertight, and `player_search.py` still finds −30° the only free turn.
   The tipping figures on the hardware page are for four cups and have not been redone.
-- **The globe's neck: the 97 mm is now in doubt, and two of the four numbers are missing.** A paper
-  strip round the neck read **206 mm on 13 Nov**, which is Ø65.6; the 97 mm would be a 305 mm strip. Both
-  can be true at once if 97 is the bayonet skirt at the very end (outer 97, opening 81 — the skirt is an
-  8 mm ring) and the glass cylinder inside it is about 66. What the seat grips is that cylinder, so the
-  three numbers still to take are **C** across the cylinder, **B** the skirt's height and **D** the
-  cylinder's height, each in three places with calipers. `cad/base.py` still uses 97 for both: a 100.2 mm
-  seat and a grip ring with a 97 mm bore, which is no interference even for the skirt and no grip at all
-  for a 66 mm neck. The seat needs a counterbore for the skirt and a preloaded bore on the cylinder.
-- **The base:** never test-printed. The seat is sized from `python base.py round 97`, and that 97 is the
-  number under doubt above, so the grip ring and body in `cad/` are not worth printing yet. Held by the
-  TPU grip ring alone: whether it holds a 165 g globe is unknown until it is printed in the right size. The tipping estimate for a 165 g, 20 cm globe is
-  about 52° and 170 g of push with the lead (48° and 140 g without); it is a rough statics estimate, not a
-  measurement. The
-  button stem height (drawn as a 3.5 mm body with about 2 mm of stem) needs
-  checking on the real switch before printing.
+- **The globe's neck: measured 13 Nov with calipers, and the seat now grips the end ring.** A, the
+  notched ring at the very end, **97 mm** across; B, its thickness, **3–5 mm**, and the lugs ramp about
+  2 mm between notches, which is the bayonet's closing action; C, the plain cylinder above it, **86.6 mm**;
+  D, that cylinder's height, **13–15 mm**. Because the end ring is the widest part and sits at the very
+  end, only it can be gripped: a seat sized to the cylinder would stop the ring going in. So
+  `cad/base.py` has the seat bore at Ø99.2 with a TPU ring of Ø99.0 outside and a **Ø96.0 bore**, which is
+  0.5 mm under the ring on each side and deforms into the notches; the cylinder passes the seat's mouth
+  with 4.7 mm to spare. Inside, the neck's bore is Ø81 (E on the measuring page, given as 8.1 cm), wider
+  than the Ø66 light hole under it, so light passes up through the neck. One earlier reading is left
+  unexplained and is superseded: a paper strip round the neck measured 206 mm, which is Ø65.6, and no
+  caliper reading agrees with it.
+- **The base:** never test-printed. The seat, grip ring and body come from `python base.py round`, which
+  now carries the caliper numbers above; that run is watertight (body 126.7 cm³, lid 59.0, grip ring
+  3.4). Whether a 0.5 mm-per-side press fit holds a 165 g globe and still lets it lift out is unknown
+  until the ring is printed, and the ring is the cheap part to iterate: drop `PRELOAD` to 0.3 and reprint
+  it alone. The tipping estimate for a 165 g, 20 cm globe is about 52° and 170 g of push with the lead (48°
+  and 140 g without); it is a rough statics estimate with 100 g of shot assumed, not a measurement, and
+  the shot weighed 95 g with its container. The button stem height (drawn as a 3.5 mm body with about
+  2 mm of stem) needs checking on the real switch before printing.
 - **Prayer times:** the lamp rounds to the nearest minute, as the Egyptian General
   Authority of Survey does, and against the Authority's published Mansoura
   timetable (760 times, five months of 2026) it gives the published minute 94% of
@@ -231,11 +237,11 @@ Numbers or sightings only the board can give.
 3. **The CPU clock:** the app uses `CpuClock::max()` (160 MHz). esp-radio needs at least 80 MHz for
    Wi-Fi. Measure how long a normal minute-tick boot is awake, then try 80 MHz and re-check the Wi-Fi
    sync, the setup mode and the panel. Not started.
-4. **The base:** the MP3 board and its socket are measured and in `cad/base.py` (13 Nov). Still to do:
-   the globe's three missing neck numbers (B, C, D) and the seat redrawn on the cylinder's diameter,
-   `python base.py round` again, the tipping estimate redone once the real printed weights are known,
-   and the repeat quote. Nothing has been printed. Print the TPU grip ring first and see whether it
-   holds the globe.
+4. **The base:** the MP3 board, its socket and the globe's neck are all measured and in `cad/base.py`
+   (13 Nov), and the seat now grips the globe's end ring with a preloaded TPU ring. Next: print the TPU
+   grip ring alone (3.4 cm³, minutes) and see whether it holds 165 g and still lets go; then print the
+   body and lid. The tipping estimate needs redoing once the printed weights are known, and the button
+   stem wants checking on the real switch before the caps are printed.
 5. **Buy:** the repeat quote from Hawk (see "Still to buy"). The lead shot has arrived and weighs
    95 g in its container (12 Nov); weigh it without.
 6. **The cell and the charger (move 3), none of it done:** the NCR18650B, its holder and the TP4056 are in
