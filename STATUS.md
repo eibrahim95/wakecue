@@ -205,9 +205,9 @@ Numbers or sightings only the board can give.
   `cad/base.py` has the seat bore at Ø99.2 with a TPU ring of Ø99.0 outside and a **Ø96.0 bore**, which is
   0.5 mm under the ring on each side and deforms into the notches; the cylinder passes the seat's mouth
   with 4.7 mm to spare. Inside, the neck's bore is Ø81 (E on the measuring page, given as 8.1 cm), wider
-  than the Ø66 light hole under it, so light passes up through the neck. One earlier reading is left
-  unexplained and is superseded: a paper strip round the neck measured 206 mm, which is Ø65.6, and no
-  caliper reading agrees with it.
+  than the Ø66 light hole under it, so light passes up through the neck. The paper strip round the
+  cylinder, re-taken, reads **272 mm**, which is Ø86.6 and agrees with the calipers; an earlier 206 mm
+  reading was the mistake, not the measurement.
 - **The base:** never test-printed. The seat, grip ring and body come from `python base.py round`, which
   now carries the caliper numbers above; that run is watertight (body 126.7 cm³, lid 59.0, grip ring
   3.4). Whether a 0.5 mm-per-side press fit holds a 165 g globe and still lets it lift out is unknown
