@@ -195,17 +195,17 @@ Numbers or sightings only the board can give.
   `PLAYER_L` and `PLAYER_SOCKET_H` in `cad/base.py` hold those numbers and the STLs were regenerated: all
   five watertight, and `player_search.py` still finds −30° the only free turn.
   The tipping figures on the hardware page are for four cups and have not been redone.
-- **The globe's neck: two of its four numbers are missing.** The measuring page
-  (`~/Documents/artifact-shelf/wakecue/explainer/globe-neck-measuring.html`) separates the ring at the
-  very end (A, the flange with the bayonet notches, which is the 97 mm) from the plain cylinder just
-  above it (C), and the seat currently uses 97 for both. Still to measure: **B** the flange's height,
-  **C** the cylinder's diameter and **D** the cylinder's height. Until then the grip ring is drawn with
-  a bore of exactly 97 mm inside a 100.2 mm seat, which is no interference at all, so it would centre
-  the globe rather than hold it; the seat needs the cylinder's diameter with a deliberate preload and a
-  counterbore for the flange.
-- **The base:** never test-printed. The seat is now sized for the real globe (`python base.py round`, neck
-  97 mm, generated and watertight), held by the TPU grip ring alone: whether that grips a 165 g globe
-  firmly enough is unknown until the ring is printed. The tipping estimate for a 165 g, 20 cm globe is
+- **The globe's neck: the 97 mm is now in doubt, and two of the four numbers are missing.** A paper
+  strip round the neck read **206 mm on 13 Nov**, which is Ø65.6; the 97 mm would be a 305 mm strip. Both
+  can be true at once if 97 is the bayonet skirt at the very end (outer 97, opening 81 — the skirt is an
+  8 mm ring) and the glass cylinder inside it is about 66. What the seat grips is that cylinder, so the
+  three numbers still to take are **C** across the cylinder, **B** the skirt's height and **D** the
+  cylinder's height, each in three places with calipers. `cad/base.py` still uses 97 for both: a 100.2 mm
+  seat and a grip ring with a 97 mm bore, which is no interference even for the skirt and no grip at all
+  for a 66 mm neck. The seat needs a counterbore for the skirt and a preloaded bore on the cylinder.
+- **The base:** never test-printed. The seat is sized from `python base.py round 97`, and that 97 is the
+  number under doubt above, so the grip ring and body in `cad/` are not worth printing yet. Held by the
+  TPU grip ring alone: whether it holds a 165 g globe is unknown until it is printed in the right size. The tipping estimate for a 165 g, 20 cm globe is
   about 52° and 170 g of push with the lead (48° and 140 g without); it is a rough statics estimate, not a
   measurement. The
   button stem height (drawn as a 3.5 mm body with about 2 mm of stem) needs
