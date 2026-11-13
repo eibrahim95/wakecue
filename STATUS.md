@@ -160,8 +160,8 @@ LM2596 at 3.2 V (5 V 1 A charger in) and take their ground through the AO3400.
 **The globe (11 Nov, neck measured 13 Nov):** white opal, 20 cm wide and tall, 165 g. The neck ends in a
 notched ring **Ø97 mm** across and **3–5 mm** thick (A, B), with a plain cylinder **Ø86.6 mm** above it
 (C), **13–15 mm** of it straight (D), and **Ø81 mm** clear inside. It came with a black ceiling fitting (a
-ring with an E27 socket) that it twists onto through three notches in that end ring; neither is used. The
-seat grips the end ring, since the ring is wider than the cylinder above it; see the open question below.
+ring with an E27 socket) that it twists onto through three notches in that end ring. The fitting is not used, but
+the bayonet is: a separate printed ring with three lugs takes the notches; see the open question below.
 
 **The lead shot (12 Nov):** bought and arrived, and weighed at **95 g in its plastic container**, so less than
 that will go in the cups; not poured (no base printed). The tipping estimate's "about 100 g" is close.
@@ -175,8 +175,20 @@ power LED are still on; the DS3231 charge resistor (most likely `R4`, decided
 
 ## Still to buy
 
-- The print from Hawk: body, lid, TPU grip ring and four feet, four button
-  caps. Repeat the quote; the body has changed since 25 Oct.
+- **The print: nothing printed, printer not decided, and the design gets another pass first (14 Nov).** Both
+  quotes were taken on the four files in `cad/to_print/` (`base.py` copies them there on every run; the other
+  STLs in `cad/` are duplicates and are not sent), as one order so delivery is paid once.
+  - **Hawk** (PLA Standard, TPU for the feet): the body **532.19 EGP**, the lid **251.17**, the rings and caps
+    **69.48** (`wakecue_round_rings_and_caps.stl`: the three bayonet rings, lug gaps 3.8, 4.1 and 4.4 mm, and the
+    four button caps in one print) and the feet **27.87** (`wakecue_round_feet_set_tpu.stl`, TPU): **880.71 EGP**
+    plus **95** delivery to Cairo or Giza, **975.71** in all (Delta, where Mansoura is, is 115). Hawk charges a
+    minimum of 25 EGP per copy of a file, so four caps as copies cost 100 EGP and four feet 100: that is why they
+    share files. States ±0.2 mm; the estimate comes from the geometry and Hawk confirms after weighing.
+  - **Most Electronics** (PLA+ at 3 EGP/g, TPU at 6): the body **342**, the lid **174**, the rings and caps **52**,
+    the feet **15 + 35** (any colour of 10 g or less counts as 50): **618 EGP**, about **713** with delivery from
+    95. Their weight estimates are lower (the body 114 g against Hawk's 159.4 g); layer height, walls and
+    tolerance are not stated; the order goes through WhatsApp and custom prints cannot be returned.
+  - Not yet asked of either: whether they print parts as small as the caps; of Most, their tolerance.
 
 ## Open questions
 
@@ -197,22 +209,36 @@ Numbers or sightings only the board can give.
   `PLAYER_L` and `PLAYER_SOCKET_H` in `cad/base.py` hold those numbers and the STLs were regenerated: all
   five watertight, and `player_search.py` still finds −30° the only free turn.
   The tipping figures on the hardware page are for four cups and have not been redone.
-- **The globe's neck: measured 13 Nov with calipers, and the seat now grips the end ring.** A, the
-  notched ring at the very end, **97 mm** across; B, its thickness, **3–5 mm**, and the lugs ramp about
-  2 mm between notches, which is the bayonet's closing action; C, the plain cylinder above it, **86.6 mm**;
-  D, that cylinder's height, **13–15 mm**. Because the end ring is the widest part and sits at the very
-  end, only it can be gripped: a seat sized to the cylinder would stop the ring going in. So
-  `cad/base.py` has the seat bore at Ø99.2 with a TPU ring of Ø99.0 outside and a **Ø96.0 bore**, which is
-  0.5 mm under the ring on each side and deforms into the notches; the cylinder passes the seat's mouth
-  with 4.7 mm to spare. Inside, the neck's bore is Ø81 (E on the measuring page, given as 8.1 cm), wider
-  than the Ø66 light hole under it, so light passes up through the neck. The paper strip round the
-  cylinder, re-taken, reads **272 mm**, which is Ø86.6 and agrees with the calipers; an earlier 206 mm
-  reading was the mistake, not the measurement.
-- **The base:** never test-printed. The seat, grip ring and body come from `python base.py round`, which
-  now carries the caliper numbers above; that run is watertight (body 126.7 cm³, lid 59.0, grip ring
-  3.4). Whether a 0.5 mm-per-side press fit holds a 165 g globe and still lets it lift out is unknown
-  until the ring is printed, and the ring is the cheap part to iterate: drop `PRELOAD` to 0.3 and reprint
-  it alone. The tipping estimate for a 165 g, 20 cm globe is about 52° and 170 g of push with the lead (48°
+- **The globe's neck, and the bayonet ring (measured 13-14 Nov with calipers, designed 14 Nov).** A, the
+  notched ring at the very end, **97 mm**; B, its thickness, **3-5 mm** (about 3 mm at the notch edges, ramping
+  to about 5 mm); C, the plain cylinder above it, **86.6 mm**; D, its height, **13-15 mm**; E, the bore, **81 mm**.
+  The three notches are evenly spaced, **10 mm wide at the outer edge, 5 mm at the bottom and 5 mm deep**; the
+  globe turns about **half the space between two notches** (roughly 55 degrees) before the thickening ring
+  stops it; the black fitting's lug allows about 4 mm and its top is about 7 mm above its floor. A seat that
+  grips the end ring was built first (a TPU ring, Ø96.0 bore); on 14 Nov it was replaced by a **separate rigid
+  ring with three lugs on its inside, one printed piece** (`bayonet_ring()` in `cad/base.py`): ring bore
+  Ø97.8, outside Ø101.8, lugs 3 mm thick that reach in to r 44.0, 0.8 mm narrower each side than the notch,
+  with a gap of `LUG_GAP` = 4.1 mm under them; three tabs on its outside sit in slots in the seat wall so it
+  cannot turn. The STL is exported upside down, lugs flat on the bed, so it prints with no supports. The seat is now Ø102.3 (was 99.2), so
+  the collar around it comes 4 mm from the front wall. The generator is watertight and a simulation of the
+  globe's end ring against the lugs passes: the globe lowers past them only with the notches lined up, the
+  lugs never touch the Ø86.6 neck, and a 5 mm ring under the lugs is blocked. What is **not known** is the gap
+  the real globe wants (4.1 is a guess from "about 4 mm") and which way and how far the ring ramps, so
+  `bayonet_test_plate()` makes three rings with gaps 3.8, 4.1 and 4.4 (210 x 203 mm, one print). The paper strip
+  round the cylinder, re-taken, reads **272 mm**, which is Ø86.6 and agrees with the calipers; an earlier
+  206 mm reading was the mistake.
+- **The touch mark (14 Nov):** the pad's mark on the front wall is one small lamp, a solid bulb on a foot engraved
+  0.4 mm deep (it was two, one lit and one dark). Generated, not printed.
+- **The names (14 Nov):** "Ibrahim" (left) and "Aya" (right) are engraved 0.5 mm deep on the curved wall, just past
+  each end of the flat front (3 mm from the flat), 7 mm tall bold capitals wrapped round the tapered wall at a
+  height of 24 mm, reading towards the front. "Aya" is centred in a stretch of wall as long as "Ibrahim" (40 mm). The outlines are in `cad/names.json`, made by `cad/make_names.py`
+  from DejaVu Sans Bold (that script needs matplotlib; `base.py` does not). To change a name, edit `NAMES` in
+  `make_names.py`, run it, then run `base.py`. Generated and looked at in the viewer; not printed, so whether
+  Hawk's standard quality keeps 0.5 mm-deep, 1.4 mm-wide strokes crisp is unknown.
+- **The base:** never test-printed. The seat, bayonet ring and body come from `python base.py round`, which
+  carries the numbers above; that run is watertight (body 127.0 cm³, lid 59.0, ring 4.8). Whether a ring
+  with a 4.1 mm lug gap locks the real globe firmly and still turns by hand is unknown until the plate arrives
+  and the three rings are tried on the globe; only `LUG_GAP` changes between them and the body stays. The tipping estimate for a 165 g, 20 cm globe is about 52° and 170 g of push with the lead (48°
   and 140 g without); it is a rough statics estimate with 100 g of shot assumed, not a measurement, and
   the shot weighed 95 g with its container. The button stem height (drawn as a 3.5 mm body with about
   2 mm of stem) needs checking on the real switch before printing.
@@ -238,11 +264,14 @@ Numbers or sightings only the board can give.
    Wi-Fi. Measure how long a normal minute-tick boot is awake, then try 80 MHz and re-check the Wi-Fi
    sync, the setup mode and the panel. Not started.
 4. **The base:** the MP3 board, its socket and the globe's neck are all measured and in `cad/base.py`
-   (13 Nov), and the seat now grips the globe's end ring with a preloaded TPU ring. Next: print the TPU
-   grip ring alone (3.4 cm³, minutes) and see whether it holds 165 g and still lets go; then print the
-   body and lid. The tipping estimate needs redoing once the printed weights are known, and the button
-   stem wants checking on the real switch before the caps are printed.
-5. **Buy:** the repeat quote from Hawk (see "Still to buy"). The lead shot has arrived and weighs
+   (13-14 Nov), and the seat now takes a separate bayonet ring. Next: another pass on the design, then order
+   everything together from whichever printer is chosen:
+   the body, the lid, the rings-and-caps plate (about 210 x 203 mm, three rings of 4.8 cm³ with different lug
+   gaps, so one is likely to fit, plus the four caps) and the feet set. When it arrives, try each ring on the globe and keep the one that
+   turns smoothly and holds. The tipping estimate needs redoing once the printed weights are known, and the
+   button stem wants checking on the real switch before the caps are ordered.
+5. **Buy:** nothing yet. Decide the printer between the two quotes (see "Still to buy") once the design has had its
+   next pass; ask about tolerance and the small caps first. The lead shot has arrived and weighs
    95 g in its container (12 Nov); weigh it without.
 6. **The cell and the charger (move 3), none of it done:** the NCR18650B, its holder and the TP4056 are in
    hand and unfitted. In order: switch off the SuperMini's and the DS3231's power LEDs; check the cell's
