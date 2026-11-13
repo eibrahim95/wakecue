@@ -1,4 +1,4 @@
-"""Wakecue lamp base: printable body + lid + TPU grip ring + TPU foot.
+"""Wakecue lamp base: printable body + lid + bayonet ring + TPU foot.
 
 All sizes in mm. Natural orientation: z=0 is the underside of the base,
 z=50 the top the globe sits on, -y is the front with the e-paper.
@@ -7,6 +7,9 @@ Two shapes:
   round  tapered drum, Ø160 at the bottom to Ø150 at the top, flat front
          that leans back ~5° so the clock faces you in bed
   rect   180 × 170 box with 12 mm corners, vertical front
+
+Two names are engraved on the curved wall just past each end of the flat front (name_engraving(); the
+outlines are in names.json, made by make_names.py, so this file needs no font tool).
 
 Four menu buttons sit in a row under the e-paper window, on the flat front: Up, Down, Ok, Back,
 left to right. They grow from the front wall (a bar inside it, one pocket and one cap hole per
@@ -23,25 +26,30 @@ datasheet's guess until it is measured on the real board.
 Print the body upside down (top face on the bed): every internal feature
 grows from the top plate or the walls, so it needs no supports. The button
 block lies on its side then, which prints cleanly as a plain bridge-free block.
-Print the lid flat, the grip ring and feet in TPU, and four button caps.
+Print the lid flat, the bayonet ring as exported (it is already upside down, lugs flat on the bed, no
+supports), the feet in TPU, and four button caps.
 
 Run:  python base.py round|rect [FLANGE_D]
 
 FLANGE_D is the diameter of the notched ring at the very end of the globe's neck, in mm. The default,
-97, is the globe in hand, measured 13 Nov: an end ring 97 mm across and 3 to 5 mm thick with three
-bayonet notches (and lugs whose thickness ramps about 2 mm between them), a plain cylinder of 86.6 mm
-above it, 13 to 15 mm of it straight, 81 mm clear inside, 165 g, 20 cm wide and tall. The seat grips
-the ring, because the ring is wider than the cylinder above it and anything sized to the cylinder would
-block its way in; the notches are what the TPU grips, and the printed seat does not use them as a
-bayonet.
+97, is the globe in hand: an end ring 97 mm across with three notches, a plain cylinder of 86.6 mm
+above it, 81 mm clear inside, 165 g, 20 cm wide and tall.
+
+The globe is held by a bayonet. A separate rigid ring drops into the seat and carries three lugs on
+its inside, printed with it as one piece. The notches in the globe's end ring let the lugs through;
+the globe is turned about 55 degrees, and the end ring, which thickens from about 3 mm at the notch
+edges to about 5 mm, wedges under the lugs, which leave a gap of LUG_GAP above the seat floor. The
+ring is a plain insert, so a wrong guess costs one small ring and never the body: print the test
+plate (three rings with different gaps) and keep the one that turns smoothly and holds.
 """
+import json
 import math
 import sys
 from pathlib import Path
 
 import numpy as np
 import trimesh
-from manifold3d import CrossSection, JoinType, Manifold, set_circular_segments
+from manifold3d import CrossSection, FillRule, JoinType, Manifold, set_circular_segments
 
 set_circular_segments(256)
 
@@ -52,7 +60,21 @@ FLANGE_D = float(sys.argv[2]) if len(sys.argv) > 2 else 97.0   # A: the notched 
 FLANGE_H = 5.0      # B: measured 3 to 5 mm, and the lugs ramp about 2 mm between notches; take the most
 NECK_D = 86.6       # C: the plain cylinder above the ring
 NECK_H = 15.0       # D: 13 to 15 mm of straight cylinder, so the glass starts well above the seat
-PRELOAD = 0.5       # each side: how much smaller the TPU bore is than the flange, which is the grip
+
+# --- the bayonet ring, from the notch numbers measured 14 Nov ---------------------
+NOTCH_W_OUT = 10.0   # notch width at the outer edge of the end ring
+NOTCH_W_IN = 5.0     # and at the bottom of the notch
+NOTCH_DEPTH = 5.0    # from the outer edge inwards, which is 3 mm clear of the bore and meets the neck
+LUG_T = 3.0          # lug thickness: its top is the ring's top, so the ring prints upside down on it
+LUG_GAP = 4.1        # the gap under a lug. The end ring is about 3 mm thick at the notch edges and
+                     # about 5 mm at its thickest, and the black fitting's lug is thought to allow 4 mm
+LUG_CLR = 0.8        # each side, between a lug and the notch walls
+LUG_TIP_CLR = 0.5    # the lug stops this far above the notch floor (and 0.7 mm off the neck)
+RING_BORE_CLR = 0.4  # the ring's bore radius is the end ring's radius plus this
+RING_WALL = 2.0
+KEY_W, KEY_OUT = 3.0, 1.2   # three tabs on the ring's outside that sit in slots in the seat wall
+SEAT_CLR = 0.25      # radial play between the ring and the seat
+TEST_GAPS = (3.8, 4.1, 4.4)  # the test plate: tight, middle, loose
 
 # --- shared parameters ------------------------------------------------------
 H = 50.0
@@ -64,10 +86,10 @@ CLR = 0.25
 
 LIGHT_R = 33.0       # light hole (ring LEDs sit at r ~ 27-32)
 RING_R = 34.0        # 16-LED ring, 68 mm
-GRIP_T = 1.6         # TPU grip ring wall
-GRIP_BORE_R = FLANGE_D / 2 - PRELOAD     # the TPU ring's bore: under the flange by PRELOAD each side
-SEAT_R = GRIP_BORE_R + GRIP_T            # the body's seat bore, which the ring drops into
-SEAT_DEPTH = FLANGE_H + 3.0              # the ring is gripped and 3 mm of wall stands above it (well under NECK_H)
+RING_R_BORE = FLANGE_D / 2 + RING_BORE_CLR      # the bayonet ring's bore
+RING_R_OUT = RING_R_BORE + RING_WALL             # and its outside
+SEAT_R = RING_R_OUT + SEAT_CLR                   # the body's seat bore, which the ring drops into
+SEAT_DEPTH = FLANGE_H + 3.0                      # taller than the ring (LUG_GAP + LUG_T, about 7 mm)
 COLLAR_Z0 = H - SEAT_DEPTH - 3.0   # 3 mm floor under the seat
 
 WIN_W, WIN_H, WIN_Z = 50.0, 25.0, 30.5       # e-paper window, high enough to clear the buttons
@@ -75,14 +97,19 @@ EPD_W, EPD_H, EPD_T = 72.0, 30.0, 3.4         # WeAct 2.13 module + slack
 EPD_Z0 = WIN_Z - EPD_H / 2
 TOUCH_X, TOUCH_Z = 31.0, 8.5
 
-# the touch mark: two tiny lamps, one lit and one dark, engraved into the wall where the pad sits.
-# They sit 0.8 mm apart on purpose, so the pair reads as ONE mark for the pad and not as two
-# indicator dots
-LAMP_DX = 2.7          # half the distance between the two lamp centres
+# the touch mark: one small lamp, a solid bulb on a foot, engraved into the wall where the pad sits
 LAMP_R = 2.2           # bulb radius
 LAMP_BASE_W, LAMP_BASE_H = 2.2, 1.1     # foot under the bulb
-LAMP_RING = 0.9        # the dark bulb is a ring this wide: a 0.5 mm groove gets closed by gap fill
 LAMP_ENGRAVE = 0.4     # how deep the mark is cut into the 2 mm front wall
+
+# the two names, engraved on the curved wall just past each end of the flat front (round only). The
+# outlines are in names.json, made by make_names.py. Each side has a stretch of wall as long as the
+# longer name, starting NAME_GAP from the flat; a shorter name is centred in its stretch. Both wrap round
+# the wall so they read left to right as you look at them
+NAMES_FILE = Path(__file__).parent / "names.json"
+NAME_Z = 24.0          # height of the middle of the capital letters above the underside
+NAME_GAP = 3.0         # plain wall between the flat front and the nearest letter
+NAME_DEPTH = 0.5       # how deep the letters are cut into the 3 mm wall
 
 # four menu buttons in a row under the window: Up, Down, Ok, Back, left to right
 # (Mini Push Button 4-pin 6x6x5.5 mm: a 3.5 mm body and about 2 mm of stem)
@@ -245,6 +272,40 @@ def player_cradle():
 
 
 # --- body -------------------------------------------------------------------
+def name_engraving():
+    """The two names as solids to cut from the wall, or None (no names.json, or not the round shape).
+
+    Each name is drawn flat (u along the line, v up, w out of the wall), then bent round the tapered wall:
+    u becomes an angle, v the height, w the depth below the surface. The wall is a cone, so the radius
+    at each height is worked out, and the letters follow it. Every vertex is moved, so the flat solid is
+    first split into small pieces."""
+    if SHAPE != "round" or not NAMES_FILE.exists():
+        return None
+    data = json.loads(NAMES_FILE.read_text())
+    cap_h = data["cap_h"]
+    r_ref = R_BOT + (R_TOP - R_BOT) * NAME_Z / H
+    edge = math.acos(-FRONT_OUT / R_BOT)             # angle from the front at which the flat meets the circle
+    start_right = edge + NAME_GAP / r_ref
+    slot = max(data["left"]["width"], data["right"]["width"])   # the stretch of wall each name has
+    out = Manifold()
+    for side in ("left", "right"):
+        d = data[side]
+        polys = [np.array(p) - np.array([d["u0"], 0.0]) for p in d["polys"]]
+        flat = Manifold.extrude(CrossSection(polys, FillRule.EvenOdd), NAME_DEPTH + 1.0).refine(5)
+        centred = (slot - d["width"]) / 2 / r_ref                  # a shorter name sits in the middle of its stretch
+        phi0 = start_right + centred if side == "right" else -(start_right + slot / r_ref) + centred
+
+        def bend(v, phi0=phi0):
+            u, vv, w = v[:, 0], v[:, 1], v[:, 2]
+            z = NAME_Z - cap_h / 2 + vv
+            r = R_BOT + (R_TOP - R_BOT) * z / H - NAME_DEPTH + w
+            phi = phi0 + u / r_ref
+            return np.stack([r * np.sin(phi), -r * np.cos(phi), z], axis=1)
+
+        out += flat.warp_batch(bend)
+    return out
+
+
 def body():
     shell = outer_section().extrude(H, scale_top=(TOP_SCALE, TOP_SCALE))
     # internal features are clipped 0.8 mm inside the skin, so no face of theirs
@@ -259,6 +320,9 @@ def body():
     b += cyl(SEAT_R + 5, COLLAR_Z0, H - TOP)
     b += cyl(RING_R + 2.5, COLLAR_Z0 - 2.5, COLLAR_Z0) - cyl(RING_R + 0.5, 0, H)
     b -= cyl(SEAT_R, H - SEAT_DEPTH, H + 1)
+    for ang in KEY_ANGLES:                      # the ring's three tabs sit in these, so it cannot turn
+        b -= box(SEAT_R - 0.5, SEAT_R + KEY_OUT + 0.4, -(KEY_W + 0.4) / 2, (KEY_W + 0.4) / 2,
+                 H - SEAT_DEPTH, H + 1).rotate((0, 0, ang))
     b -= cyl(LIGHT_R, 0, H + 1)
 
     # lid screw bosses, tied to the wall
@@ -290,21 +354,22 @@ def body():
     b += tilt(front) ^ clip
     b -= tilt(box(-WIN_W / 2, WIN_W / 2, FRONT_OUT - 3, FRONT_IN + 0.01,
                   WIN_Z - WIN_H / 2, WIN_Z + WIN_H / 2))
-    # touch pad mark: two lamps, one lit and one dark, engraved into the 2 mm wall where the pad
-    # sits; the cut also thins the wall under the finger, which is what the sensor wants. The pad
+    # touch pad mark: one lamp engraved into the 2 mm wall where the pad sits; the cut also thins the wall under the finger, which is what the sensor wants. The pad
     # has to clear BTN_BLOCK_X (inside it the wall is 9.5 mm thick) and the mark stays well inboard
     # of the tapered edge, where the face is 45 mm either side of the middle at this height
     cut0, cut1 = FRONT_OUT - 1.0, FRONT_OUT + LAMP_ENGRAVE
     bulb_z = TOUCH_Z + (LAMP_BASE_H - 0.35) / 2   # centre the whole mark on the pad
-    def lamp(cx, lit):
+    def lamp(cx):
         bulb = ycyl(LAMP_R, cut0, cut1, cx, bulb_z)
-        if not lit:                            # dark: the bulb is left in outline
-            bulb -= ycyl(LAMP_R - LAMP_RING, cut0 - 1, cut1 + 1, cx, bulb_z)
         # a wide little foot under the bulb, so the mark reads as a lamp on a stand rather than a dot
         base = box(cx - LAMP_BASE_W / 2, cx + LAMP_BASE_W / 2, cut0, cut1,
                    bulb_z - LAMP_R + 0.35 - LAMP_BASE_H, bulb_z - LAMP_R + 0.35)
         return bulb + base
-    b -= tilt(lamp(TOUCH_X - LAMP_DX, True) + lamp(TOUCH_X + LAMP_DX, False))
+    b -= tilt(lamp(TOUCH_X))
+
+    names = name_engraving()
+    if names is not None:
+        b -= names
 
     # TP4056: USB-C notch open to the underside, guides that stop the board
     b -= box(-USB_W / 2, USB_W / 2, BACK_IN - 2, BACK_IN + WALL + 10, -1, USB_Z_TOP)
@@ -354,11 +419,65 @@ def lid():
     return m
 
 
-def grip_ring():
-    """TPU ring that lines the seat and grips the globe. Its bore is PRELOAD under the notched end ring
-    on each side, so it deforms into the notches on the way in and the globe can still be lifted out;
-    the narrower cylinder above the ring never touches it."""
-    return cyl(SEAT_R - 0.1, 0, SEAT_DEPTH - 0.5) - cyl(GRIP_BORE_R, -1, SEAT_DEPTH)
+KEY_ANGLES = (60.0, 180.0, 300.0)   # between the lugs, which are at 0, 120 and 240
+
+
+def bayonet_ring(gap=LUG_GAP, flip=False):
+    """Rigid ring with three lugs, printed upside down: its top face, which is also the lugs' top face,
+    goes on the bed, so the lugs are flat on it and need no supports. `flip` returns it that way up, ready
+    to print; without it the ring is as it sits in the seat, lugs at the top.
+
+    The lug is as wide as the notch (10 mm at the outer edge of the end ring, 5 mm at the bottom) less
+    LUG_CLR each side, and reaches in to LUG_TIP_CLR above the notch floor, so it passes the notch and
+    overlaps the solid ring by about 4.5 mm once the globe is turned."""
+    top = gap + LUG_T
+    ring = cyl(RING_R_OUT, 0, top) - cyl(RING_R_BORE, -1, top + 1)
+    r_f = FLANGE_D / 2
+    r_floor = r_f - NOTCH_DEPTH
+    r_tip = r_floor + LUG_TIP_CLR
+
+    def half(r):
+        w = NOTCH_W_IN + (NOTCH_W_OUT - NOTCH_W_IN) * (min(r, r_f) - r_floor) / NOTCH_DEPTH
+        return (w - 2 * LUG_CLR) / 2
+
+    r_root = RING_R_BORE + RING_WALL / 2
+    pts = [(r_tip, -half(r_tip)), (r_f, -half(r_f)), (r_root, -half(r_f)),
+           (r_root, half(r_f)), (r_f, half(r_f)), (r_tip, half(r_tip))]
+    lug = Manifold.extrude(CrossSection([pts]), LUG_T).translate((0, 0, gap))
+    for ang in (0.0, 120.0, 240.0):
+        ring += lug.rotate((0, 0, ang))
+    for ang in KEY_ANGLES:
+        ring += box(RING_R_OUT - 0.5, RING_R_OUT + KEY_OUT, -KEY_W / 2, KEY_W / 2, 0, top).rotate((0, 0, ang))
+    if flip:
+        ring = ring.rotate((180.0, 0.0, 0.0)).translate((0, 0, top))
+    return ring
+
+
+def test_plate():
+    """Three rings with different lug gaps, in one print: two in a row and one below, about 215 mm square."""
+    pitch = 2 * (RING_R_OUT + KEY_OUT) + 3.0
+    spots = ((-pitch / 2, pitch / 2), (pitch / 2, pitch / 2), (0.0, -pitch / 2 + 6.0))
+    plate = Manifold()
+    for g, (x, y) in zip(TEST_GAPS, spots):
+        plate += bayonet_ring(g, flip=True).translate((x, y, 0))
+    return plate
+
+
+def rings_and_caps():
+    """The test plate with the four button caps in its free corners: one PLA file, so Hawk's minimum price
+    per copy is paid once and not five times. The caps stand flange down, as they print."""
+    plate = test_plate()
+    for x, y in ((-78.0, -70.0), (-78.0, -88.0), (78.0, -70.0), (78.0, -88.0)):
+        plate += button_cap().translate((x, y, 0))
+    return plate
+
+
+def feet_set():
+    """The four feet side by side in one TPU file, for the same reason."""
+    out = Manifold()
+    for x, y in ((-10.0, -10.0), (10.0, -10.0), (-10.0, 10.0), (10.0, 10.0)):
+        out += foot().translate((x, y, 0))
+    return out
 
 
 def button_cap():
@@ -380,7 +499,7 @@ def save(m, path):
 
 if __name__ == "__main__":
     out = Path(__file__).parent
-    parts = (("body", body()), ("lid", lid()), ("grip_tpu", grip_ring()), ("foot_tpu", foot()),
+    parts = (("body", body()), ("lid", lid()), ("bayonet_ring", bayonet_ring(flip=True)), ("bayonet_test_plate", test_plate()), ("foot_tpu", foot()), ("rings_and_caps", rings_and_caps()), ("feet_set_tpu", feet_set()),
              ("button_cap", button_cap()))
     for name, part in parts:
         t = save(part, out / f"wakecue_{SHAPE}_{name}.stl")
@@ -388,3 +507,12 @@ if __name__ == "__main__":
         print(f"{SHAPE:5s} {name:9s} watertight={t.is_watertight} "
               f"vol={t.volume / 1000:6.1f} cm3 size={np.round(bb[1] - bb[0], 1)}")
     print(f"front tilt {TILT:.1f} deg")
+
+    # the four files that go to Hawk, copied into to_print/ so that is the one folder to upload from; the
+    # rest in this folder are the single parts and the old test plate, which would only be duplicates
+    import shutil
+    to_print = out / "to_print"
+    to_print.mkdir(exist_ok=True)
+    for name in ("body", "lid", "rings_and_caps", "feet_set_tpu"):
+        shutil.copy(out / f"wakecue_{SHAPE}_{name}.stl", to_print / f"wakecue_{SHAPE}_{name}.stl")
+    print(f"copied the order files to {to_print.name}/")
