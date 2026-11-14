@@ -4,7 +4,7 @@ The one place that says where the build stands and what is in hand.
 `docs/` is reference and does not repeat any of this. Update this file in the
 same commit as the build-log row that changes it.
 
-Last updated: 13 Nov 2026
+Last updated: 14 Nov 2026
 
 ## Current move
 
@@ -169,9 +169,12 @@ that will go in the cups; not poured (no base printed). The tipping estimate's "
 **In hand but not fitted:** INA219, NCR18650B + holder + TP4056, CR2032, slide switch,
 perfboard, the fallback parts (MT3608, AO3401, 1N5819WF).
 
+**Done to the DS3231 (14 Nov):** `R4` (100 Ω, marked `101`, in the charge path VCC → R4 → D2 → holder `+`,
+confirmed by continuity) was removed; VCC to the holder's `+` reads open; a CR2032 is fitted and the clock kept
+the time across a USB unplug and replug.
+
 **Not done to the boards yet:** the SuperMini's power LED and the DS3231's
-power LED are still on; the DS3231 charge resistor (most likely `R4`, decided
-5 Nov) is not lifted, so no coin cell goes in.
+power LED are still on (`R3`, marked `102`, sits next to it and may be its resistor; not traced).
 
 ## Still to buy
 
