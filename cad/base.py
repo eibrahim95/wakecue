@@ -124,6 +124,16 @@ BTN_PROUD = 0.8            # how far the cap stands out of the face
 BTN_CAP_D, BTN_FLANGE_D, BTN_FLANGE_T = 5.8, 8.2, 1.6
 BTN_CAP_LEN = BTN_FLANGE_T + FRONT_WALL + BTN_PROUD   # flange base to the cap tip
 
+# the power switch (Slide Switch 3-pin ON-OFF SPDT from Makers): in series with the cell's output so the lamp
+# can be isolated for flashing and storage. Body measured by the user on 14 Nov: 8 x 4 x 3 mm. Which face the
+# lever stands on was not said: this assumes the 8 x 4 face, so the window is 8 across the lever's travel and 4
+# tall, and the 3 mm is how far the body goes into the lamp. If the lever is on another face, swap the numbers.
+# The window is cut through the back wall, turned 15 degrees left of the USB-C notch; the switch is pushed in
+# from inside and glued; the lever stands out.
+SWITCH_W, SWITCH_H, SWITCH_D = 8.0, 4.0, 3.0   # lever travel direction, height, depth into the lamp
+SWITCH_CLR = 0.3                                 # each side of the window
+SWITCH_Z = 8.5                                   # window centre above the underside, level with the buttons
+SWITCH_ANGLE = 15.0                              # degrees to the left of the back, so it clears the USB-C notch
 USB_W, USB_Z_TOP = 9.6, 13.5
 USB_PLUG_W, USB_PLUG_Z_TOP = 13.0, 15.5      # room for the plug's moulded grip
 WASHER_R = 12.5      # ballast cups, Ø25: lead sinkers or steel nuts
@@ -378,6 +388,11 @@ def body():
     for s in (-1, 1):
         g = box(8.0, 10.0, BACK_IN - 31, BACK_IN + 1, 10.0, H)
         b += (g if s > 0 else g.mirror((1, 0, 0))) ^ clip
+    # the power switch's window, through the back wall on the left of the USB-C notch
+    if SHAPE == "round":
+        r_in = inner_radius_at(SWITCH_Z)
+        b -= box(-(SWITCH_W / 2 + SWITCH_CLR), SWITCH_W / 2 + SWITCH_CLR, r_in - 2.0, r_in + WALL + 8.0,
+                 SWITCH_Z - (SWITCH_H / 2 + SWITCH_CLR), SWITCH_Z + SWITCH_H / 2 + SWITCH_CLR).rotate((0, 0, SWITCH_ANGLE))
     # the card window: through the back wall, level with the MP3 board's card slot
     if SHAPE == "round":
         b -= player_place(card_window())

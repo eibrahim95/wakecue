@@ -95,6 +95,12 @@
   a measured sleep current that matches the battery table; the board in the base, no breadboard.</p>
   <p><b>Checks on the way:</b></p>
   <ul>
+    <li>The slide switch (bought, in hand) wired in the TP4056's output line, so the lamp can be
+    isolated for flashing and stored with nothing drawing from the cell. It sits in a window in the
+    back wall, 15° left of the USB-C notch, and its 8 × 4 × 3 mm body is in <code>cad/base.py</code> (which face carries the
+    lever is assumed, so check it on the part). With it off, check that the cell still charges and that nothing reads
+    current from the cell; a TP4056 board without protection keeps its own standby draw on the cell
+    side of the switch.</li>
     <li>Power LEDs off the SuperMini and the DS3231, and the DS3231 charge resistor lifted, before a cell
     goes in (see the warning in the <a href="build-log.html#status">build log</a>).</li>
     <li>Whole-board sleep current under 0.5 mA on the 2 mA range, with a jumper across the meter opened

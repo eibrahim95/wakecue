@@ -201,6 +201,7 @@ Numbers or sightings only the board can give.
   by ear), so the player needs no boost. Still open: the LED ring, rated from 3.5 V, now on the 3.2 V
   supply but its colours at that voltage not reported; the file count and resets were not checked at low voltage. The fallback is the MT3608
   boost.
+- **The slide switch (14 Nov):** body measured 8 × 4 × 3 mm; the shop gives no size or part number, and a search found no listing with that body. The window in the back wall (15° left of the USB-C notch, `SWITCH_W/H/D` = 8 × 4 × 3) assumes the lever stands on the 8 × 4 face: check that on the part. Not asked of the parts: whether the TP4056 board has protection, which decides what "off" means for storage when the switch sits in its output line.
 - **Sleep current:** an estimate. The battery calculator assumes 1 mA. (move 3)
 - **Panel's hidden edge:** which six rows or columns the e-paper hides is
   unmeasured; every mark is kept six pixels in until then. (move 3)
@@ -276,10 +277,10 @@ Numbers or sightings only the board can give.
 5. **Buy:** nothing yet. Decide the printer between the two quotes (see "Still to buy") once the design has had its
    next pass; ask about tolerance and the small caps first. The lead shot has arrived and weighs
    95 g in its container (12 Nov); weigh it without.
-6. **The cell and the charger (move 3), none of it done:** the NCR18650B, its holder and the TP4056 are in
-   hand and unfitted. In order: switch off the SuperMini's and the DS3231's power LEDs; check the cell's
+6. **The cell and the charger (move 3), none of it done:** the NCR18650B, its holder, the TP4056 and the
+   slide switch are in hand and unfitted. In order: check which face of the slide switch (8 × 4 × 3 mm, measured 14 Nov) carries the lever, in case `SWITCH_W/H/D` in `cad/base.py` needs swapping; switch off the SuperMini's and the DS3231's power LEDs; check the cell's
    voltage and the TP4056's output and polarity with the meter before anything is connected; run the board
-   from the cell with the charger unplugged; charge it through the TP4056 while the board runs and watch
+   from the cell with the charger unplugged, the slide switch in the TP4056's output line (the cell can then still charge with the lamp off; see the standby note below); charge it through the TP4056 while the board runs and watch
    termination with the lamp asleep; note the cell voltage at which the chip resets; fit the INA219 on the
    same I²C wires (0x40) and read a plausible cell voltage with the ring and player off; then measure the
    whole-board sleep current (under 0.5 mA is the gate) and replace the calculator's 1 mA estimate.
