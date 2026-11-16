@@ -14,7 +14,8 @@ MP3 board plays by file number, the menu chooses and previews sounds, and a due 
 plays its own. The LED ring is in the app, the rail switch (AO3400 on GPIO5) is fitted, and the rail
 now comes on only for a wake that needs it: flashed on 13 Nov and reported working on every point
 asked of it, including no click on a plain minute tick and nothing drawn with the rail off.
-Not yet done: the ring at 3.2-3.5 V, and what the ring does after an adhan ends.
+Not yet done: the ring at 3.2-3.5 V, what the ring does after an adhan ends, and the player's 5 V supply
+(the player does not run from a low cell: see "The player needs 5 V").
 The plan and its gates are in `docs/index.html#roadmap`. Move 3 (it ships) follows.
 
 ## Seen on the board
@@ -96,6 +97,17 @@ Each line has a row in `docs/build-log.html`.
   command: a due prayer or alarm and a preview both started their sound. The 3.2 V line reads 0 on the
   meter with the gate low, so nothing leaks through the ring's data pin or the player's serial pins.
 
+- **The player needs 5 V (reported 16 Nov):** a whole adhan stopped part-way, with clicks from the speaker
+  and the display dim, when the MP3 board ran from the LM2596 at 3.2 V and at 3.5 V; at 3.9 V it played
+  longer and still stopped after some time. Powered from the SuperMini's 5V pin (rail forced on in the
+  firmware, see below), the adhan played all the way through. This reverses the 10 Nov result, which was
+  short sounds by ear, not a whole adhan. Not measured: whether the LM2596/charger path sagged or the
+  player's draw is simply too much at that voltage (the rail was not metered during the adhan), and
+  whether the 5V pin's USB source is enough for the loudest adhan at volume 20. The MP3 board's VCC is
+  now on the 5V pin; the ring is still on the LM2596 at 3.2 V. The test used a temporary firmware change (rail
+  switched on at boot and held through every sleep); it is reverted, so the firmware is back to the rail
+  only when needed.
+
 ## Written but not yet seen
 
 - **The face, rearranged:** the date sits under the time, a crescent moon in the top-right corner
@@ -155,7 +167,8 @@ soldering iron, solder in 0.4, 0.6, 0.8 and 1 mm (plus the old Stannol HS10
 **Wired on the breadboard:** SuperMini, DS3231 (no coin cell), TTP223,
 PCF8574 + four buttons, e-paper, the MP3 board and its speaker (GPIO20/21 through 1 kΩ), the LED ring
 (GPIO10 through 330 Ω), and the AO3400 rail switch (GPIO5). The ring and the MP3 board run from the
-LM2596 at 3.2 V (5 V 1 A charger in) and take their ground through the AO3400.
+LM2596 at 3.2 V (5 V 1 A charger in) and take their ground through the AO3400. Since 16 Nov the MP3
+board's VCC is on the SuperMini's 5V pin instead (see "The player needs 5 V").
 
 **The globe (11 Nov, neck measured 13 Nov):** white opal, 20 cm wide and tall, 165 g. The neck ends in a
 notched ring **Ø97 mm** across and **3–5 mm** thick (A, B), with a plain cylinder **Ø86.6 mm** above it
@@ -197,10 +210,12 @@ power LED are still on (`R3`, marked `102`, sits next to it and may be its resis
 
 Numbers or sightings only the board can give.
 
-- **Low cell voltage:** the MP3 board and speaker play at 4.2, 3.5 and 3.2 V from the LM2596 (10 Nov,
-  by ear), so the player needs no boost. Still open: the LED ring, rated from 3.5 V, now on the 3.2 V
-  supply but its colours at that voltage not reported; the file count and resets were not checked at low voltage. The fallback is the MT3608
-  boost.
+- **Low cell voltage:** short sounds played at 4.2, 3.5 and 3.2 V from the LM2596 (10 Nov, by ear), but
+  a whole adhan did not (16 Nov, entry above), so the player cannot run straight from a cell: it needs 5 V,
+  which means the MT3608 boost (no longer a fallback). To do: build the boost from the cell, put a
+  470-1000 µF cap at the MP3 board's VCC, and meter the rail during an adhan. Still open: the LED ring,
+  rated from 3.5 V, on the 3.2 V supply, its colours at that voltage not reported, and whether it
+  should share the 5 V boost (its data pin is 3.3 V, so a 5 V ring needs a level shifter).
 - **The slide switch (14 Nov):** body measured 8 × 4 × 3 mm; the shop gives no size or part number, and a search found no listing with that body. The window in the back wall (15° left of the USB-C notch, `SWITCH_W/H/D` = 8 × 4 × 3) assumes the lever stands on the 8 × 4 face: check that on the part. Not asked of the parts: whether the TP4056 board has protection, which decides what "off" means for storage when the switch sits in its output line.
 - **Sleep current:** an estimate. The battery calculator assumes 1 mA. (move 3)
 - **Panel's hidden edge:** which six rows or columns the e-paper hides is
@@ -261,9 +276,9 @@ Numbers or sightings only the board can give.
    and Volume rows, the rearranged face and the prayer strip on the glass. Then step through the alarm
    sounds 1 to 88 and say which ringtones are wrong, quiet or unwanted; swap them with
    `tools/ringtone_order.txt` and `tools/audio_card.py`.
-2. **The ring at 3.2-3.5 V:** the rail switch now lets the ring be darkened and measured, so this is one
-   look at the ring on the 3.2 V supply, then the decision on what it does after an adhan ends (it goes
-   dark now).
+2. **The ring at 3.2-3.5 V, and the player's 5 V:** one look at the ring on the 3.2 V supply, then the
+   decision on what it does after an adhan ends (it goes dark now). The player now needs 5 V from the
+   cell (the MT3608); build it.
 3. **The CPU clock:** the app uses `CpuClock::max()` (160 MHz). esp-radio needs at least 80 MHz for
    Wi-Fi. Measure how long a normal minute-tick boot is awake, then try 80 MHz and re-check the Wi-Fi
    sync, the setup mode and the panel. Not started.

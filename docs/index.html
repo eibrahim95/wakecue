@@ -73,16 +73,17 @@
     <li>The ring ramps red to warm white in a dark room at 4.2 V and at 3.2–3.5 V (the LM2596, fed from a 5 V phone charger
     or a 9–12 V adapter of at least 1 A, stands in for an empty cell; this is below the ring's 3.5 V datasheet minimum). Ring current
     measured.</li>
-    <li>Track 1 plays at a usable volume at 4.2 V and at 3.2–3.5 V, and the frame commands work on the
-    real board (the listing never names the player's chip).</li>
+    <li>Track 1 plays at a usable volume and the frame commands work on the real board (the listing never
+    names the player's chip). A whole adhan did <em>not</em> play at 3.2–3.9 V (16 Nov) but did at 5 V, so
+    the player needs the 5 V boost from the cell.</li>
     <li>No chip reset when the rail switches on (slow gate: 1 kΩ), nor when the speaker starts with the ring
     lit.</li>
     <li>Rail-off draw back at the sleep baseline. If it is not, current is leaking through the ring or player
     pins while their ground is open, and the switch moves to the high side (the AO3401s) before anything
     else.</li>
     <li>Fallbacks, only if needed: a 1N5819WF in series with the ring supply if the first pixel glitches at
-    4.2 V; the MT3608 5 V boost for the ring and player if colours or sound fail below about 3.5 V (that
-    route also needs a 3.3 → 5 V level shifter from elsewhere).</li>
+    4.2 V; the MT3608 5 V boost for the player (now needed, 16 Nov) and for the ring if its colours fail below
+    about 3.5 V (a ring on 5 V also needs a 3.3 → 5 V level shifter on its data line).</li>
   </ul>
 
   <h3>3 · It ships <span class="muted">· after 2</span></h3>
